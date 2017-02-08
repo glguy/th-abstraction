@@ -20,5 +20,5 @@ data U = forall a. Show a => MkU a
 return []
 
 main =
-  do putStrLn $(stringE . ppShow =<< normalizeInfo =<< reify ''T)
-     putStrLn $(stringE . ppShow =<< normalizeInfo =<< reify ''U)
+  do putStrLn $(stringE . ppShow =<< reifyDatatype ''T)
+     putStrLn $(stringE . ppShow =<< reifyDatatype ''U)
