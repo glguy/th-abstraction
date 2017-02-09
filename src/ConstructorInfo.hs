@@ -152,17 +152,25 @@ normalizeGadtC typename vars tyvars context innerType fields variant name =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
        ConT innerTyCon : ts | typename == innerTyCon ->
-         let (subst, context') = mergeArguments vars ts
+         let (subst, context1) = mergeArguments vars ts
+             context2 = applySubstitution subst <$> context1
              tyvars' = filter (\tv -> Map.notMember (tvName tv) subst) tyvars
              fields' = applySubstitution subst <$> fields
-         in pure (ConstructorInfo name tyvars' (context' ++ context) fields' variant)
+         in pure (ConstructorInfo name tyvars' (context2 ++ context) fields' variant)
        _ -> fail ("normalizeGadtC: Panic resolving " ++ show name)
 
 mergeArguments :: [Name] -> [Type] -> (Map Name Type, Cxt)
-mergeArguments ns ts = foldMap aux (zip ns ts)
+mergeArguments ns ts = foldl aux (Map.empty, []) (zip ns ts)
   where
-    aux (n, VarT m) = (Map.singleton m (VarT n), [])
-    aux (n, t     ) = (Map.empty, [EqualityT `AppT` VarT n `AppT` t])
+    aux (subst, context) (n,p) =
+      case p of
+        VarT m
+          | Map.notMember m subst -> (subst1, context)
+          where
+            substm = Map.singleton m (VarT n)
+            subst1 = Map.insert m (VarT n)
+                   $ fmap (applySubstitution substm) subst
+        _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
 
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
