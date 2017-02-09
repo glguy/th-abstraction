@@ -16,6 +16,8 @@ module ConstructorInfo
 
 import           Data.Foldable
 import           Data.Data (Data)
+import           Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import           Data.Map (Map)
 import           GHC.Generics (Generic)
@@ -151,49 +153,51 @@ normalizeGadtC ::
 normalizeGadtC typename vars tyvars context innerType fields variant name =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
-       ConT innerTyCon : ts | typename == innerTyCon ->
-         let (subst, context1) = mergeArguments vars ts
-             context2 = applySubstitution subst <$> context1
-             tyvars' = filter (\tv -> Map.notMember (tvName tv) subst) tyvars
-             fields' = applySubstitution subst <$> fields
-         in pure (ConstructorInfo name tyvars' (context2 ++ context) fields' variant)
-       _ -> fail ("normalizeGadtC: Panic resolving " ++ show name)
+       ConT innerTyCon :| ts | typename == innerTyCon ->
 
-mergeArguments :: [Name] -> [Type] -> (Map Name Type, Cxt)
-mergeArguments ns ts = foldl aux (Map.empty, []) (zip ns ts)
+         let (substName, context1) = mergeArguments vars ts
+             subst   = VarT <$> substName
+             tyvars' = [ tv | tv <- tyvars, Map.notMember (tvName tv) subst ]
+
+             context2 = applySubstitution subst <$> context1
+             fields'  = applySubstitution subst <$> fields
+         in pure (ConstructorInfo name tyvars' (context2 ++ context) fields' variant)
+
+mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
+mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
   where
     aux (subst, context) (n,p) =
       case p of
-        VarT m
-          | Map.notMember m subst -> (subst1, context)
-          where
-            substm = Map.singleton m (VarT n)
-            subst1 = Map.insert m (VarT n)
-                   $ fmap (applySubstitution substm) subst
+        VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
 
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
-  case decomposeType t of
-    ConT n : ts ->
-      do info <- reify n
-         case info of
-           TyConI (TySynD _ synvars def) ->
-             do ts' <- traverse resolveTypeSynonyms ts
-                let subst = Map.fromList (zip (map tvName synvars) ts')
-                resolveTypeSynonyms (applySubstitution subst def)
+  let f :| xs = decomposeType t
 
-           _ -> return t
-    _ -> return t
+      notTypeSynCase = foldl AppT f <$> traverse resolveTypeSynonyms xs
+
+  in case f of
+       ConT n ->
+         do info <- reify n
+            case info of
+              TyConI (TySynD _ synvars def) ->
+                do let argNames    = map tvName synvars
+                       (args,rest) = splitAt (length argNames) xs
+                       subst       = Map.fromList (zip argNames args)
+                   resolveTypeSynonyms (foldl AppT (applySubstitution subst def) rest)
+
+              _ -> notTypeSynCase
+       _ -> notTypeSynCase
 
 -- | Decompose a type into a list of it's outermost applications.
 --
 -- >>> t == foldl1 AppT (decomposeType t)
-decomposeType :: Type -> [Type]
-decomposeType = reverse . go
+decomposeType :: Type -> NonEmpty Type
+decomposeType = NE.reverse . go
   where
-    go (AppT f x) = x : go f
-    go t          = [t]
+    go (AppT f x) = x NE.<| go f
+    go t          = t :| []
 
 applySubstitution :: Map Name Type -> Type -> Type
 applySubstitution subst = go
