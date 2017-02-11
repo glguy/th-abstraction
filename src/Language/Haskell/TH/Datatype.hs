@@ -8,30 +8,32 @@ and newtypes that can be supported uniformly across multiple verisons
 of the template-haskell package.
 
 -}
-module ConstructorInfo
+module Language.Haskell.TH.Datatype
   ( reifyDatatype
   , DatatypeInfo(..)
   , ConstructorInfo(..)
   ) where
 
-import           Data.Foldable
 import           Data.Data (Data)
-import           Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Map as Map
-import           Data.Map (Map)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
+
+#if MIN_VERSION_template_haskell(2,11,0)
+import           Data.List.NonEmpty (NonEmpty(..))
+import           Data.Foldable
+import qualified Data.Map as Map
+import           Data.Map (Map)
+import qualified Data.List.NonEmpty as NE
+#endif
 
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
   { datatypeContext :: Cxt               -- ^ Data type context (deprecated)
   , datatypeName    :: Name              -- ^ Type constructor
   , datatypeVars    :: [TyVarBndr]       -- ^ Type parameters
-  , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   , datatypeDerives :: Cxt               -- ^ Derived constraints
-  , datatypeKind    :: Maybe Kind        -- ^ Kind annotation
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
+  , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
   deriving (Show, Eq, Ord, Data, Generic)
 
@@ -74,15 +76,15 @@ normalizeInfo _ = fail "normalizeInfo: Expected a type constructor"
 
 normalizeDec :: Dec -> Q DatatypeInfo
 #if MIN_VERSION_template_haskell(2,11,0)
-normalizeDec (NewtypeD context name tyvars kind con derives) =
-  normalizeDec' context name tyvars [con] kind derives Newtype
-normalizeDec (DataD context name tyvars kind cons derives) =
-  normalizeDec' context name tyvars cons kind derives Datatype
+normalizeDec (NewtypeD context name tyvars _kind con derives) =
+  normalizeDec' context name tyvars [con] derives Newtype
+normalizeDec (DataD context name tyvars _kind cons derives) =
+  normalizeDec' context name tyvars cons derives Datatype
 #else
 normalizeDec (NewtypeD context name tyvars con derives) =
-  normalizeDec' context name tyvars [con] Nothing (map ConT derives) Newtype
+  normalizeDec' context name tyvars [con] (map ConT derives) Newtype
 normalizeDec (DataD context name tyvars cons derives) =
-  normalizeDec' context name tyvars cons Nothing (map ConT derives) Datatype
+  normalizeDec' context name tyvars cons (map ConT derives) Datatype
 #endif
 normalizeDec _ = fail "normalizeDec: DataD or NewtypeD required"
 
@@ -92,11 +94,10 @@ normalizeDec' ::
   Name            {- ^ Type constructor    -} ->
   [TyVarBndr]     {- ^ Type parameters     -} ->
   [Con]           {- ^ Constructors        -} ->
-  Maybe Kind      {- ^ Kind annotation     -} ->
   Cxt             {- ^ Derived constraints -} ->
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
-normalizeDec' context name tyvars cons kind derives variant =
+normalizeDec' context name tyvars cons derives variant =
   do let vs = map tvName tyvars
      cons' <- concat <$> traverse (normalizeCon name vs) cons
      pure DatatypeInfo
@@ -105,7 +106,6 @@ normalizeDec' context name tyvars cons kind derives variant =
        , datatypeVars    = tyvars
        , datatypeCons    = cons'
        , datatypeDerives = derives
-       , datatypeKind    = kind
        , datatypeVariant = variant
        }
 
@@ -127,8 +127,8 @@ normalizeCon typename vars = go [] []
           let fns = takeFieldNames xs in
           pure [ConstructorInfo n tyvars context
                   (takeFieldTypes xs) (RecordConstructor fns)]
-        ForallC tyvars' context' c ->
-          go (tyvars'++tyvars) (context'++context) c
+        ForallC tyvars' context' c' ->
+          go (tyvars'++tyvars) (context'++context) c'
 
 #if MIN_VERSION_template_haskell(2,11,0)
         GadtC ns xs innerType ->
