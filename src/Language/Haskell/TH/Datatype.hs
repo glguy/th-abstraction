@@ -12,6 +12,8 @@ module Language.Haskell.TH.Datatype
   ( reifyDatatype
   , DatatypeInfo(..)
   , ConstructorInfo(..)
+  , DatatypeVariant(..)
+  , ConstructorVariant(..)
   ) where
 
 import           Data.Data (Data)
@@ -37,6 +39,7 @@ data DatatypeInfo = DatatypeInfo
   }
   deriving (Show, Eq, Ord, Data, Generic)
 
+-- | Possible variants of data type declarations.
 data DatatypeVariant
   = Datatype -- ^ Type declared with *data*
   | Newtype  -- ^ Type declared with *newtype*
@@ -53,7 +56,7 @@ data ConstructorInfo = ConstructorInfo
   }
   deriving (Show, Eq, Ord, Data, Generic)
 
-
+-- | Possible variants of data constructors.
 data ConstructorVariant
   = NormalConstructor        -- ^ Constructor without field names
   | InfixConstructor         -- ^ Infix constructor
@@ -71,7 +74,7 @@ reifyDatatype n = normalizeInfo =<< reify n
 
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
-normalizeInfo _ = fail "normalizeInfo: Expected a type constructor"
+normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 
 
 normalizeDec :: Dec -> Q DatatypeInfo
@@ -86,7 +89,7 @@ normalizeDec (NewtypeD context name tyvars con derives) =
 normalizeDec (DataD context name tyvars cons derives) =
   normalizeDec' context name tyvars cons (map ConT derives) Datatype
 #endif
-normalizeDec _ = fail "normalizeDec: DataD or NewtypeD required"
+normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
 
 normalizeDec' ::
@@ -132,10 +135,10 @@ normalizeCon typename vars = go [] []
 
 #if MIN_VERSION_template_haskell(2,11,0)
         GadtC ns xs innerType ->
-          traverse (gadtCase innerType (map snd xs) NormalConstructor) ns
+          gadtCase ns innerType (map snd xs) NormalConstructor
         RecGadtC ns xs innerType ->
           let fns = takeFieldNames xs in
-          traverse (gadtCase innerType (takeFieldTypes xs) (RecordConstructor fns)) ns
+          gadtCase ns innerType (takeFieldTypes xs) (RecordConstructor fns)
       where
         gadtCase = normalizeGadtC typename vars tyvars context
 
@@ -145,12 +148,12 @@ normalizeGadtC ::
   [Name]             {- ^ Type parameters              -} ->
   [TyVarBndr]        {- ^ Constructor parameters       -} ->
   Cxt                {- ^ Constructor context          -} ->
+  [Name]             {- ^ Constructor names            -} ->
   Type               {- ^ Declared type of constructor -} ->
   [Type]             {- ^ Constructor field types      -} ->
   ConstructorVariant {- ^ Constructor variant          -} ->
-  Name               {- ^ Constructor                  -} ->
-  Q ConstructorInfo
-normalizeGadtC typename vars tyvars context innerType fields variant name =
+  Q [ConstructorInfo]
+normalizeGadtC typename vars tyvars context names innerType fields variant =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
@@ -161,7 +164,8 @@ normalizeGadtC typename vars tyvars context innerType fields variant name =
 
              context2 = applySubstitution subst <$> context1
              fields'  = applySubstitution subst <$> fields
-         in pure (ConstructorInfo name tyvars' (context2 ++ context) fields' variant)
+         in pure [ConstructorInfo name tyvars' (context2 ++ context) fields' variant
+                 | name <- names]
 
 mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
 mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
@@ -170,6 +174,7 @@ mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
       case p of
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
+
 
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
