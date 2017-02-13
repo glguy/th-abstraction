@@ -14,19 +14,22 @@ module Language.Haskell.TH.Datatype
   , ConstructorInfo(..)
   , DatatypeVariant(..)
   , ConstructorVariant(..)
+  , TypeSubstitution(..)
+  , resolveTypeSynonyms
+  , quantifyType
   ) where
 
 import           Data.Data (Data)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
-
-#if MIN_VERSION_template_haskell(2,11,0)
-import           Data.List.NonEmpty (NonEmpty(..))
-import           Data.Foldable
+import           Data.Monoid ((<>))
 import qualified Data.Map as Map
 import           Data.Map (Map)
+import qualified Data.Set as Set
+import           Data.Set (Set)
+import           Data.Foldable
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
-#endif
 
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
@@ -162,8 +165,8 @@ normalizeGadtC typename vars tyvars context names innerType fields variant =
              subst   = VarT <$> substName
              tyvars' = [ tv | tv <- tyvars, Map.notMember (tvName tv) subst ]
 
-             context2 = applySubstitution subst <$> context1
-             fields'  = applySubstitution subst <$> fields
+             context2 = applySubstitution subst context1
+             fields'  = applySubstitution subst fields
          in pure [ConstructorInfo name tyvars' (context2 ++ context) fields' variant
                  | name <- names]
 
@@ -175,6 +178,7 @@ mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
 
+#endif
 
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
@@ -187,39 +191,30 @@ resolveTypeSynonyms t =
          do info <- reify n
             case info of
               TyConI (TySynD _ synvars def) ->
-                do let argNames    = map tvName synvars
-                       (args,rest) = splitAt (length argNames) xs
-                       subst       = Map.fromList (zip argNames args)
-                   resolveTypeSynonyms (foldl AppT (applySubstitution subst def) rest)
+                let argNames    = map tvName synvars
+                    (args,rest) = splitAt (length argNames) xs
+                    subst       = Map.fromList (zip argNames args)
+                    t'          = foldl AppT (applySubstitution subst def) rest
+                in resolveTypeSynonyms t'
 
               _ -> notTypeSynCase
        _ -> notTypeSynCase
 
--- | Decompose a type into a list of it's outermost applications.
+-- | Decompose a type into a list of it's outermost applications. This process
+-- forgets about infix application and explicit parentheses.
 --
--- >>> t == foldl1 AppT (decomposeType t)
+-- > t ~= foldl1 AppT (decomposeType t)
 decomposeType :: Type -> NonEmpty Type
 decomposeType = NE.reverse . go
   where
-    go (AppT f x) = x NE.<| go f
-    go t          = t :| []
-
-applySubstitution :: Map Name Type -> Type -> Type
-applySubstitution subst = go
-  where
-    go (ForallT tvs context t) =
-      let subst' = foldl' (flip Map.delete) subst (map tvName tvs) in
-      ForallT tvs (applySubstitution subst' <$> context)
-                  (applySubstitution subst' t)
-    go (AppT f x)      = AppT (go f) (go x)
-    go (SigT t k)      = SigT (go t) (go k)
-    go (VarT v)        = Map.findWithDefault (VarT v) v subst
-    go (InfixT l c r)  = InfixT (go l) c (go r)
-    go (UInfixT l c r) = UInfixT (go l) c (go r)
-    go (ParensT t)     = ParensT (go t)
-    go t               = t
-
+    go (AppT f x     ) = x NE.<| go f
+#if MIN_VERSION_template_haskell(2,11,0)
+    go (InfixT  l f r) = ConT f :| [l,r]
+    go (UInfixT l f r) = ConT f :| [l,r]
+    go (ParensT t    ) = decomposeType t
 #endif
+    go t               = t :| []
+
 
 tvName :: TyVarBndr -> Name
 tvName (PlainTV  name  ) = name
@@ -230,3 +225,64 @@ takeFieldNames xs = [a | (a,_,_) <- xs]
 
 takeFieldTypes :: [(a,b,Type)] -> [Type]
 takeFieldTypes xs = [a | (_,_,a) <- xs]
+
+------------------------------------------------------------------------
+
+-- | Add universal quantifier for all free variables in the type. This is
+-- useful when constructing a type signature for a declaration.
+quantifyType :: Type -> Type
+quantifyType t = ForallT (PlainTV <$> toList (freeVariables t)) [] t
+
+class TypeSubstitution a where
+  applySubstitution :: Map Name Type -> a -> a
+  freeVariables     :: a -> Set Name
+
+instance TypeSubstitution a => TypeSubstitution [a] where
+  freeVariables     = foldMap freeVariables
+  applySubstitution = fmap . applySubstitution
+
+instance TypeSubstitution Type where
+  applySubstitution subst = go
+    where
+      go (ForallT tvs context t) =
+        let subst' = foldl' (flip Map.delete) subst (map tvName tvs) in
+        ForallT tvs (applySubstitution subst' context)
+                    (applySubstitution subst' t)
+      go (AppT f x)      = AppT (go f) (go x)
+      go (SigT t k)      = SigT (go t) (go k)
+      go (VarT v)        = Map.findWithDefault (VarT v) v subst
+#if MIN_VERSION_template_haskell(2,11,0)
+      go (InfixT l c r)  = InfixT (go l) c (go r)
+      go (UInfixT l c r) = UInfixT (go l) c (go r)
+      go (ParensT t)     = ParensT (go t)
+#endif
+      go t               = t
+
+  freeVariables t =
+    case t of
+      ForallT tvs context t ->
+        Set.difference
+          (freeVariables context <> freeVariables t)
+          (Set.fromList (map tvName tvs))
+      AppT f x      -> freeVariables f <> freeVariables x
+      SigT t k      -> freeVariables t <> freeVariables k
+      VarT v        -> Set.singleton v
+#if MIN_VERSION_template_haskell(2,11,0)
+      InfixT l c r  -> freeVariables l <> freeVariables r
+      UInfixT l c r -> freeVariables l <> freeVariables r
+      ParensT t'    -> freeVariables t'
+#endif
+      _             -> Set.empty
+
+instance TypeSubstitution ConstructorInfo where
+  freeVariables ci =
+    Set.difference
+      (freeVariables (constructorContext ci) <>
+       freeVariables (constructorFields ci))
+      (Set.fromList (tvName <$> constructorVars ci))
+
+  applySubstitution subst ci =
+    let subst' = foldl' (flip Map.delete) subst (map tvName (constructorVars ci)) in
+    ci { constructorContext = applySubstitution subst (constructorContext ci)
+       , constructorFields  = applySubstitution subst (constructorFields ci)
+       }
