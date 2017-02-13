@@ -17,12 +17,12 @@ module Language.Haskell.TH.Datatype
   , TypeSubstitution(..)
   , resolveTypeSynonyms
   , quantifyType
+  , freshenFreeVariables
   ) where
 
 import           Data.Data (Data)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
-import           Data.Monoid ((<>))
 import qualified Data.Map as Map
 import           Data.Map (Map)
 import qualified Data.Set as Set
@@ -30,6 +30,7 @@ import           Data.Set (Set)
 import           Data.Foldable
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
+import           Data.List (union, (\\))
 
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
@@ -230,12 +231,29 @@ takeFieldTypes xs = [a | (_,_,a) <- xs]
 
 -- | Add universal quantifier for all free variables in the type. This is
 -- useful when constructing a type signature for a declaration.
+-- This code is careful to ensure that the order of the variables quantified
+-- is determined by their order of appearance in the type singnature. (In
+-- contrast with being dependent upon the Ord instance for 'Name')
+--
 quantifyType :: Type -> Type
-quantifyType t = ForallT (PlainTV <$> toList (freeVariables t)) [] t
+quantifyType t
+  | null vs   = t
+  | otherwise = ForallT (PlainTV <$> vs) [] t
+  where
+    vs = freeVariables t
+
+
+-- | Substitute all of the free variables in a type with fresh ones
+freshenFreeVariables :: Type -> Q Type
+freshenFreeVariables t =
+  do let xs = [ (n, VarT <$> newName (nameBase n)) | n <- freeVariables t]
+     subst <- sequence (Map.fromList xs)
+     return (applySubstitution subst t)
+
 
 class TypeSubstitution a where
   applySubstitution :: Map Name Type -> a -> a
-  freeVariables     :: a -> Set Name
+  freeVariables     :: a -> [Name]
 
 instance TypeSubstitution a => TypeSubstitution [a] where
   freeVariables     = foldMap freeVariables
@@ -261,25 +279,23 @@ instance TypeSubstitution Type where
   freeVariables t =
     case t of
       ForallT tvs context t ->
-        Set.difference
-          (freeVariables context <> freeVariables t)
-          (Set.fromList (map tvName tvs))
-      AppT f x      -> freeVariables f <> freeVariables x
-      SigT t k      -> freeVariables t <> freeVariables k
-      VarT v        -> Set.singleton v
+          (freeVariables context `union` freeVariables t)
+          \\ map tvName tvs
+      AppT f x      -> freeVariables f `union` freeVariables x
+      SigT t k      -> freeVariables t `union` freeVariables k
+      VarT v        -> [v]
 #if MIN_VERSION_template_haskell(2,11,0)
-      InfixT l c r  -> freeVariables l <> freeVariables r
-      UInfixT l c r -> freeVariables l <> freeVariables r
+      InfixT l c r  -> freeVariables l `union` freeVariables r
+      UInfixT l c r -> freeVariables l `union` freeVariables r
       ParensT t'    -> freeVariables t'
 #endif
-      _             -> Set.empty
+      _             -> []
 
 instance TypeSubstitution ConstructorInfo where
   freeVariables ci =
-    Set.difference
-      (freeVariables (constructorContext ci) <>
+      (freeVariables (constructorContext ci) `union`
        freeVariables (constructorFields ci))
-      (Set.fromList (tvName <$> constructorVars ci))
+      \\ (tvName <$> constructorVars ci)
 
   applySubstitution subst ci =
     let subst' = foldl' (flip Map.delete) subst (map tvName (constructorVars ci)) in
