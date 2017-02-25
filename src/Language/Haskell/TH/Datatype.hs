@@ -18,19 +18,23 @@ module Language.Haskell.TH.Datatype
   , resolveTypeSynonyms
   , quantifyType
   , freshenFreeVariables
+  , unify
+  , tvName
+  , datatypeType
   ) where
 
 import           Data.Data (Data)
-import           GHC.Generics (Generic)
-import           Language.Haskell.TH
-import qualified Data.Map as Map
-import           Data.Map (Map)
-import qualified Data.Set as Set
-import           Data.Set (Set)
 import           Data.Foldable
+import           Data.List (union, (\\))
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
-import           Data.List (union, (\\))
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Data.Set (Set)
+import qualified Data.Set as Set
+import           Control.Monad (foldM)
+import           GHC.Generics (Generic)
+import           Language.Haskell.TH
 
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
@@ -66,6 +70,15 @@ data ConstructorVariant
   | InfixConstructor         -- ^ Infix constructor
   | RecordConstructor [Name] -- ^ Constructor with field names
   deriving (Show, Eq, Ord, Data, Generic)
+
+
+-- | Construct a Type using the datatype's type constructor and type
+-- parameteters.
+datatypeType :: DatatypeInfo -> Type
+datatypeType di
+  = foldl AppT (ConT (datatypeName di))
+  $ map (VarT . tvName)
+  $ datatypeVars di
 
 
 -- | Compute a normalized view of the metadata about a data type or newtype
@@ -166,9 +179,9 @@ normalizeGadtC typename vars tyvars context names innerType fields variant =
              subst   = VarT <$> substName
              tyvars' = [ tv | tv <- tyvars, Map.notMember (tvName tv) subst ]
 
-             context2 = applySubstitution subst context1
+             context2 = applySubstitution subst (context1 ++ context)
              fields'  = applySubstitution subst fields
-         in pure [ConstructorInfo name tyvars' (context2 ++ context) fields' variant
+         in pure [ConstructorInfo name tyvars' context2 fields' variant
                  | name <- names]
 
 mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
@@ -302,3 +315,44 @@ instance TypeSubstitution ConstructorInfo where
     ci { constructorContext = applySubstitution subst (constructorContext ci)
        , constructorFields  = applySubstitution subst (constructorFields ci)
        }
+
+------------------------------------------------------------------------
+
+combineSubstitutions x y = Map.union (fmap (applySubstitution y) x) y
+
+unify :: [Type] -> Q (Map Name Type)
+unify [] = pure Map.empty
+unify (t:ts) =
+  do t':ts' <- traverse resolveTypeSynonyms (t:ts)
+     let aux sub u =
+           do sub' <- unify' (applySubstitution sub t')
+                             (applySubstitution sub u)
+              return (combineSubstitutions sub sub')
+
+     case foldM aux Map.empty ts' of
+       Right m -> return m
+       Left (x,y) ->
+         fail $ showString "Unable to unify types "
+              . showsPrec 11 x
+              . showString " and "
+              . showsPrec 11 y
+              $ ""
+
+unify' :: Type -> Type -> Either (Type,Type) (Map Name Type)
+
+unify' (VarT n) (VarT m) | n == m = pure Map.empty
+unify' (VarT n) t | n `elem` freeVariables t = Left (VarT n, t)
+                  | otherwise                = pure (Map.singleton n t)
+unify' t (VarT n) | n `elem` freeVariables t = Left (VarT n, t)
+                  | otherwise                = pure (Map.singleton n t)
+
+unify' (ConT n) (ConT m) | n == m = pure Map.empty
+
+unify' (AppT f1 x1) (AppT f2 x2) =
+  do sub1 <- unify' f1 f2
+     sub2 <- unify' (applySubstitution sub1 x1) (applySubstitution sub1 x2)
+     return (combineSubstitutions sub1 sub2)
+
+unify' (TupleT n) (TupleT m) | n == m = pure Map.empty
+
+unify' t u = Left (t,u)
