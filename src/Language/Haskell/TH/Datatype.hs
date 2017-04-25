@@ -329,6 +329,24 @@ instance TypeSubstitution ConstructorInfo where
        , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
 
+-- Pred became a type synonym for Type
+#if !MIN_VERSION_template_haskell(2,10,0)
+instance TypeSubstitution Pred where
+  freeVariables (ClassP _ xs) = freeVariables xs
+  freeVariables (EqualP x y) = freeVariables x `union` freeVariables y
+
+  applySubstitution p (ClassP n xs) = ClassP n (applySubstitution p xs)
+  applySubstitution p (EqualP x y) = EqualP (applySubstitution p x)
+                                            (applySubstitution p y)
+#endif
+
+-- Kind became a type synonym for Type. Previously there were no kind variables
+#if !MIN_VERSION_template_haskell(2,8,0)
+instance TypeSubstitution Kind where
+  freeVariables _ = []
+  applySubstitution _ k = k
+#endif
+
 ------------------------------------------------------------------------
 
 combineSubstitutions :: Map Name Type -> Map Name Type -> Map Name Type
