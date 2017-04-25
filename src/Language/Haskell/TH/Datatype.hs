@@ -67,8 +67,8 @@ data DatatypeInfo = DatatypeInfo
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
-  = Datatype -- ^ Type declared with *data*
-  | Newtype  -- ^ Type declared with *newtype*
+  = Datatype -- ^ Type declared with @data@
+  | Newtype  -- ^ Type declared with @newtype@
   deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
 
 -- | Normalized information about constructors associated with newtypes and
