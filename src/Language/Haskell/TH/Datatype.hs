@@ -52,7 +52,7 @@ data DatatypeInfo = DatatypeInfo
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
-  deriving (Show, Eq, Ord, Typeable, Data, Generic)
+  deriving (Show, Eq, Typeable, Data, Generic)
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
@@ -69,7 +69,7 @@ data ConstructorInfo = ConstructorInfo
   , constructorFields  :: [Type]             -- ^ Constructor fields
   , constructorVariant :: ConstructorVariant -- ^ Extra information
   }
-  deriving (Show, Eq, Ord, Typeable, Data, Generic)
+  deriving (Show, Eq, Typeable, Data, Generic)
 
 -- | Possible variants of data constructors.
 data ConstructorVariant
@@ -138,7 +138,7 @@ normalizeDec' context name tyvars cons derives variant =
        }
 
 #if MIN_VERSION_template_haskell(2,12,0)
-extractDerivCxt :: [DeriveClause] -> Cxt
+extractDerivCxt :: [DerivClause] -> Cxt
 extractDerivCxt xs = [ c | DerivClause _ cs <- xs, c <- cs ]
 #else
 extractDerivCxt :: Cxt -> Cxt
