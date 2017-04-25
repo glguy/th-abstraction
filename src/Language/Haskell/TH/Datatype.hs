@@ -24,7 +24,7 @@ module Language.Haskell.TH.Datatype
   ) where
 
 import           Data.Data (Data)
-import           Data.Foldable
+import           Data.Foldable (foldl')
 import           Data.List (union, (\\))
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
@@ -35,6 +35,11 @@ import qualified Data.Set as Set
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
+
+#if !MIN_VERSION_base(4,8,0)
+import           Control.Applicative (Applicative(..), (<$>))
+import           Data.Traversable (traverse)
+#endif
 
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
