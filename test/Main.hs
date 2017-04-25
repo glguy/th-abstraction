@@ -5,7 +5,6 @@ module Main (main) where
 import Control.Monad
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
-import System.Exit
 
 type Gadt1Int = Gadt1 Int
 
@@ -13,7 +12,7 @@ data Gadt1 a where
   Gadtc1 :: Int   -> Gadt1Int
   Gadtc2 :: (a,a) -> Gadt1 a
 
-data Adt1 a b = Adtc1 (a,b) | Adtc2 Bool Int
+data Adt1 a b = Adtc1 (a,b) | Bool `Adtc2` Int
 
 data Gadtrec1 a where
   Gadtrecc1 :: { gadtrec1a :: a, gadtrec1b :: b } -> Gadtrec1 (a,b)
@@ -39,7 +38,7 @@ adt1Test =
        unless (c1 == ConstructorInfo 'Adtc1 [] [] [AppT (AppT (TupleT 2) (VarT a)) (VarT b)] NormalConstructor)
               (fail "Bad adtc1")
 
-       unless (c2 == ConstructorInfo 'Adtc2 [] [] [ConT ''Bool, ConT ''Int] NormalConstructor)
+       unless (c2 == ConstructorInfo 'Adtc2 [] [] [ConT ''Bool, ConT ''Int] InfixConstructor)
               (fail "Bad adtc2")
 
        [| putStrLn "Adt1 tests passed" |]

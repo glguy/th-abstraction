@@ -46,8 +46,6 @@ module Language.Haskell.TH.Datatype
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
-import           Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Control.Monad (foldM)
@@ -260,9 +258,9 @@ resolveTypeSynonyms t =
 --
 -- > t ~= foldl1 AppT (decomposeType t)
 decomposeType :: Type -> NonEmpty Type
-decomposeType = NE.reverse . go
+decomposeType = reverseNonEmpty . go
   where
-    go (AppT f x     ) = x NE.<| go f
+    go (AppT f x     ) = x <| go f
 #if MIN_VERSION_template_haskell(2,11,0)
     go (InfixT  l f r) = ConT f :| [l,r]
     go (UInfixT l f r) = ConT f :| [l,r]
@@ -444,3 +442,17 @@ classPred =
 #else
   ClassP
 #endif
+
+------------------------------------------------------------------------
+
+-- NonEmpty didn't move into base into recently. Reimplementing it locally
+-- saves dependencies for supporting older GHCs
+
+data NonEmpty a = a :| [a]
+
+(<|) :: a -> NonEmpty a -> NonEmpty a
+x <| (y :| ys) = x :| (y : ys)
+
+reverseNonEmpty :: NonEmpty a -> NonEmpty a
+reverseNonEmpty (x :| xs) = y :| ys
+  where y:ys = reverse (x:xs)
