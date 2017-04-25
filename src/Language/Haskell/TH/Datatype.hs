@@ -23,7 +23,7 @@ module Language.Haskell.TH.Datatype
   , datatypeType
   ) where
 
-import           Data.Data (Data)
+import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
 import           Data.List.NonEmpty (NonEmpty(..))
@@ -41,6 +41,8 @@ import           Control.Applicative (Applicative(..), (<$>))
 import           Data.Traversable (traverse)
 #endif
 
+import           GHC.Generics (Generic)
+
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
   { datatypeContext :: Cxt               -- ^ Data type context (deprecated)
@@ -50,13 +52,13 @@ data DatatypeInfo = DatatypeInfo
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving (Show, Eq, Ord, Typeable, Data, Generic)
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
   = Datatype -- ^ Type declared with *data*
   | Newtype  -- ^ Type declared with *newtype*
-  deriving (Show, Read, Eq, Ord, Data, Generic)
+  deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
 
 -- | Normalized information about constructors associated with newtypes and
 -- data types.
@@ -67,14 +69,14 @@ data ConstructorInfo = ConstructorInfo
   , constructorFields  :: [Type]             -- ^ Constructor fields
   , constructorVariant :: ConstructorVariant -- ^ Extra information
   }
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving (Show, Eq, Ord, Typeable, Data, Generic)
 
 -- | Possible variants of data constructors.
 data ConstructorVariant
   = NormalConstructor        -- ^ Constructor without field names
   | InfixConstructor         -- ^ Infix constructor
   | RecordConstructor [Name] -- ^ Constructor with field names
-  deriving (Show, Eq, Ord, Data, Generic)
+  deriving (Show, Eq, Ord, Typeable, Data, Generic)
 
 
 -- | Construct a Type using the datatype's type constructor and type
@@ -125,6 +127,7 @@ normalizeDec' ::
 normalizeDec' context name tyvars cons derives variant =
   do let vs = map tvName tyvars
      cons' <- concat <$> traverse (normalizeCon name vs) cons
+     let derives' = extractDerivCxt derives
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -134,6 +137,13 @@ normalizeDec' context name tyvars cons derives variant =
        , datatypeVariant = variant
        }
 
+#if MIN_VERSION_template_haskell(2,12,0)
+extractDerivCxt :: [DeriveClause] -> Cxt
+extractDerivCxt xs = [ c | DerivClause _ cs <- xs, c <- cs ]
+#else
+extractDerivCxt :: Cxt -> Cxt
+extractDerivCxt xs = xs
+#endif
 
 normalizeCon ::
   Name   {- ^ Type constructor -} ->
