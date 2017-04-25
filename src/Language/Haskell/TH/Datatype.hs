@@ -9,15 +9,26 @@ of the template-haskell package.
 
 -}
 module Language.Haskell.TH.Datatype
-  ( reifyDatatype
+  (
+  -- * Types
   , DatatypeInfo(..)
   , ConstructorInfo(..)
   , DatatypeVariant(..)
   , ConstructorVariant(..)
+
+  -- * Normalization functions
+  , reifyDatatype
+  , normalizeInfo
+  , normalizeDec
+  , normalizeCon
+
+  -- * Type variable manipulation
   , TypeSubstitution(..)
-  , resolveTypeSynonyms
   , quantifyType
   , freshenFreeVariables
+
+  -- * Convenience functions
+  , resolveTypeSynonyms
   , unify
   , tvName
   , datatypeType
@@ -92,11 +103,15 @@ reifyDatatype ::
 reifyDatatype n = normalizeInfo =<< reify n
 
 
+-- | Normalize 'Info' for a newtype or datatype into a 'DatatypeInfo'.
+-- Fail in 'Q' otherwise.
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
 normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 
 
+-- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
+-- Fail in 'Q' otherwise.
 normalizeDec :: Dec -> Q DatatypeInfo
 #if MIN_VERSION_template_haskell(2,12,0)
 normalizeDec (NewtypeD context name tyvars _kind con derives) =
@@ -141,6 +156,9 @@ normalizeDec' context name tyvars cons derives variant =
        , datatypeVariant = variant
        }
 
+-- | Normalize a 'Con' into a 'ConstructorInfo'. This requires knowledge of
+-- the type and parameters of the constructor as extracted from the outer
+-- 'Dec'.
 normalizeCon ::
   Name   {- ^ Type constructor -} ->
   [Name] {- ^ Type parameters  -} ->
@@ -207,6 +225,7 @@ mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
 
 #endif
 
+-- | Expand all of the type synonyms in a type.
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
   let f :| xs = decomposeType t
