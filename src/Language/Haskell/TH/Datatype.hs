@@ -30,8 +30,6 @@ import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Set (Set)
-import qualified Data.Set as Set
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
@@ -41,14 +39,12 @@ import           Control.Applicative (Applicative(..), (<$>))
 import           Data.Traversable (traverse)
 #endif
 
-import           GHC.Generics (Generic)
-
 -- | Normalized information about newtypes and data types.
 data DatatypeInfo = DatatypeInfo
   { datatypeContext :: Cxt               -- ^ Data type context (deprecated)
   , datatypeName    :: Name              -- ^ Type constructor
   , datatypeVars    :: [TyVarBndr]       -- ^ Type parameters
-  , datatypeDerives :: Cxt               -- ^ Derived constraints
+  , datatypeDerives :: [Type]            -- ^ Derived constraints
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
@@ -102,7 +98,12 @@ normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 
 
 normalizeDec :: Dec -> Q DatatypeInfo
-#if MIN_VERSION_template_haskell(2,11,0)
+#if MIN_VERSION_template_haskell(2,12,0)
+normalizeDec (NewtypeD context name tyvars _kind con derives) =
+  normalizeDec' context name tyvars [con] (extractDerivCxt derives) Newtype
+normalizeDec (DataD context name tyvars _kind cons derives) =
+  normalizeDec' context name tyvars cons (extractDerivCxt derives) Datatype
+#elif MIN_VERSION_template_haskell(2,11,0)
 normalizeDec (NewtypeD context name tyvars _kind con derives) =
   normalizeDec' context name tyvars [con] derives Newtype
 normalizeDec (DataD context name tyvars _kind cons derives) =
@@ -115,19 +116,22 @@ normalizeDec (DataD context name tyvars cons derives) =
 #endif
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
+#if MIN_VERSION_template_haskell(2,12,0)
+extractDerivCxt :: [DerivClause] -> Cxt
+extractDerivCxt xs = [ c | DerivClause _ cs <- xs, c <- cs ]
+#endif
 
 normalizeDec' ::
   Cxt             {- ^ Datatype context    -} ->
   Name            {- ^ Type constructor    -} ->
   [TyVarBndr]     {- ^ Type parameters     -} ->
   [Con]           {- ^ Constructors        -} ->
-  Cxt             {- ^ Derived constraints -} ->
+  [Type]          {- ^ Derived constraints -} ->
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name tyvars cons derives variant =
   do let vs = map tvName tyvars
      cons' <- concat <$> traverse (normalizeCon name vs) cons
-     let derives' = extractDerivCxt derives
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -136,14 +140,6 @@ normalizeDec' context name tyvars cons derives variant =
        , datatypeDerives = derives
        , datatypeVariant = variant
        }
-
-#if MIN_VERSION_template_haskell(2,12,0)
-extractDerivCxt :: [DerivClause] -> Cxt
-extractDerivCxt xs = [ c | DerivClause _ cs <- xs, c <- cs ]
-#else
-extractDerivCxt :: Cxt -> Cxt
-extractDerivCxt xs = xs
-#endif
 
 normalizeCon ::
   Name   {- ^ Type constructor -} ->
@@ -198,6 +194,8 @@ normalizeGadtC typename vars tyvars context names innerType fields variant =
              fields'  = applySubstitution subst fields
          in pure [ConstructorInfo name tyvars' context2 fields' variant
                  | name <- names]
+
+       _ -> fail "normalizeGadtC: Expected type constructor application"
 
 mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
 mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
@@ -306,15 +304,15 @@ instance TypeSubstitution Type where
 
   freeVariables t =
     case t of
-      ForallT tvs context t ->
-          (freeVariables context `union` freeVariables t)
+      ForallT tvs context t' ->
+          (freeVariables context `union` freeVariables t')
           \\ map tvName tvs
       AppT f x      -> freeVariables f `union` freeVariables x
-      SigT t k      -> freeVariables t `union` freeVariables k
+      SigT t' k     -> freeVariables t' `union` freeVariables k
       VarT v        -> [v]
 #if MIN_VERSION_template_haskell(2,11,0)
-      InfixT l c r  -> freeVariables l `union` freeVariables r
-      UInfixT l c r -> freeVariables l `union` freeVariables r
+      InfixT l _ r  -> freeVariables l `union` freeVariables r
+      UInfixT l _ r -> freeVariables l `union` freeVariables r
       ParensT t'    -> freeVariables t'
 #endif
       _             -> []
@@ -327,12 +325,13 @@ instance TypeSubstitution ConstructorInfo where
 
   applySubstitution subst ci =
     let subst' = foldl' (flip Map.delete) subst (map tvName (constructorVars ci)) in
-    ci { constructorContext = applySubstitution subst (constructorContext ci)
-       , constructorFields  = applySubstitution subst (constructorFields ci)
+    ci { constructorContext = applySubstitution subst' (constructorContext ci)
+       , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
 
 ------------------------------------------------------------------------
 
+combineSubstitutions :: Map Name Type -> Map Name Type -> Map Name Type
 combineSubstitutions x y = Map.union (fmap (applySubstitution y) x) y
 
 unify :: [Type] -> Q (Map Name Type)
