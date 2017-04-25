@@ -36,7 +36,7 @@ import           Language.Haskell.TH
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
-import           Data.Traversable (traverse)
+import           Data.Traversable (traverse, sequenceA)
 #endif
 
 -- | Normalized information about newtypes and data types.
@@ -273,7 +273,7 @@ quantifyType t
 freshenFreeVariables :: Type -> Q Type
 freshenFreeVariables t =
   do let xs = [ (n, VarT <$> newName (nameBase n)) | n <- freeVariables t]
-     subst <- sequence (Map.fromList xs)
+     subst <- sequenceA (Map.fromList xs)
      return (applySubstitution subst t)
 
 
