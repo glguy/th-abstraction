@@ -6,7 +6,7 @@ license:             ISC
 license-file:        LICENSE
 author:              Eric Mertens
 maintainer:          emertens@gmail.com
-copyright:           2016 Eric Mertens
+copyright:           2017 Eric Mertens
 category:            Development
 build-type:          Simple
 extra-source-files:  ChangeLog.md
