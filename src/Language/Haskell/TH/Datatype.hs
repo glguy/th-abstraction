@@ -24,7 +24,7 @@ module Language.Haskell.TH.Datatype
   ) where
 
 import           Data.Data (Data)
-import           Data.Foldable (foldl')
+import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
