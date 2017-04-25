@@ -52,17 +52,14 @@ gadt1Test =
        let [a]     = map tvName (datatypeVars info)
            [c1,c2] = datatypeCons info
 
-       unless (null (constructorVars c1)) (fail "Bad vars c1")
-       unless (constructorName c1 == 'Gadtc1) (fail "Bad name c1")
-       unless (constructorVariant c1 == NormalConstructor) (fail "Bad variant c1")
-       let [fi1] = constructorFields c1
-       unless (fi1 == ConT ''Int) (fail "Bad field c1")
+       unless (c1 == ConstructorInfo 'Gadtc1 [] [equalPred (VarT a) (ConT ''Int)]
+                         [ConT ''Int] NormalConstructor)
+              (fail ("bad Gadtc1 " ++ show c1))
 
-       unless (null (constructorVars c2)) (fail "Bad vars c2")
-       unless (constructorName c2 == 'Gadtc2) (fail "Bad name c2")
-       unless (constructorVariant c2 == NormalConstructor) (fail "Bad variant c2")
-       let [fi2] = constructorFields c2
-       unless (fi2 == AppT (AppT (TupleT 2) (VarT a)) (VarT a)) (fail "Bad field c2")
+       unless (c2 == ConstructorInfo 'Gadtc2 [] []
+                        [AppT (AppT (TupleT 2) (VarT a)) (VarT a)]
+                        NormalConstructor)
+              (fail ("bad Gadtc2 " ++ show c2))
 
        [| putStrLn "Gadt1 tests passed" |]
    )
