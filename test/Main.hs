@@ -1,4 +1,4 @@
-{-# Language CPP, TemplateHaskell, GADTs #-}
+{-# Language TemplateHaskell, GADTs #-}
 
 module Main (main) where
 

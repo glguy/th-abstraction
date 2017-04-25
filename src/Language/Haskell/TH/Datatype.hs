@@ -437,10 +437,10 @@ equalPred x y =
 
 -- | Construct a typeclass constraint. The implementation of 'Pred' varies
 -- across versions of Template Haskell.
-classPred :: Type {- ^ class -} -> [Type] {- ^ parameters -} -> Pred
+classPred :: Name {- ^ class -} -> [Type] {- ^ parameters -} -> Pred
 classPred =
 #if MIN_VERSION_template_haskell(2,10,0)
-  foldl AppT
+  foldl AppT . ConT
 #else
   ClassP
 #endif
