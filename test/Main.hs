@@ -80,7 +80,7 @@ gadtrec1Test =
                                (AppT (AppT (TupleT 2) (VarT (tvName v1)))
                                      (VarT (tvName v2)))]
 #else
-           expectedCxt = [EqualT (VarT a)
+           expectedCxt = [EqualP (VarT a)
                                  (AppT (AppT (TupleT 2) (VarT (tvName v1)))
                                        (VarT (tvName v2)))]
 
