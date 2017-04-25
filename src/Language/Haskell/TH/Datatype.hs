@@ -1,7 +1,11 @@
-{-# Language CPP #-}
-{-# Language DeriveGeneric, DeriveDataTypeable #-}
+{-# Language CPP, DeriveGeneric, DeriveDataTypeable #-}
 
-{- |
+{-|
+Module      : Language.Haskell.TH.Datatype
+Description : Backwards-compatible interface to reified information about datatypes.
+Copyright   : Eric Mertens 2017
+License     : ISC
+Maintainer  : emertens@gmail.com
 
 This module provides a flattened view of information about data types
 and newtypes that can be supported uniformly across multiple verisons
@@ -11,7 +15,7 @@ of the template-haskell package.
 module Language.Haskell.TH.Datatype
   (
   -- * Types
-  , DatatypeInfo(..)
+    DatatypeInfo(..)
   , ConstructorInfo(..)
   , DatatypeVariant(..)
   , ConstructorVariant(..)
@@ -29,7 +33,7 @@ module Language.Haskell.TH.Datatype
 
   -- * Convenience functions
   , resolveTypeSynonyms
-  , unify
+  , unifyTypes
   , tvName
   , datatypeType
   ) where
@@ -262,6 +266,8 @@ decomposeType = NE.reverse . go
     go t               = t :| []
 
 
+-- | Extract the type variable name from a 'TyVarBndr' ignoring the
+-- kind signature if one exists.
 tvName :: TyVarBndr -> Name
 tvName (PlainTV  name  ) = name
 tvName (KindedTV name _) = name
@@ -296,8 +302,11 @@ freshenFreeVariables t =
      return (applySubstitution subst t)
 
 
+-- | Class for types that support type variable substitution.
 class TypeSubstitution a where
+  -- | Apply a type variable substitution
   applySubstitution :: Map Name Type -> a -> a
+  -- | Compute the free type variables
   freeVariables     :: a -> [Name]
 
 instance TypeSubstitution a => TypeSubstitution [a] where
@@ -371,9 +380,11 @@ instance TypeSubstitution Kind where
 combineSubstitutions :: Map Name Type -> Map Name Type -> Map Name Type
 combineSubstitutions x y = Map.union (fmap (applySubstitution y) x) y
 
-unify :: [Type] -> Q (Map Name Type)
-unify [] = pure Map.empty
-unify (t:ts) =
+-- | Compute the type variable substitution that unifies a list of types,
+-- or fail in 'Q'.
+unifyTypes :: [Type] -> Q (Map Name Type)
+unifyTypes [] = pure Map.empty
+unifyTypes (t:ts) =
   do t':ts' <- traverse resolveTypeSynonyms (t:ts)
      let aux sub u =
            do sub' <- unify' (applySubstitution sub t')
