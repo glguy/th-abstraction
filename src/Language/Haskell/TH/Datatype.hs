@@ -31,6 +31,11 @@ module Language.Haskell.TH.Datatype
   , quantifyType
   , freshenFreeVariables
 
+  -- * 'Pred' functions
+  , equalPred
+  , classPred
+
+
   -- * Convenience functions
   , resolveTypeSynonyms
   , unifyTypes
@@ -418,3 +423,24 @@ unify' (AppT f1 x1) (AppT f2 x2) =
 unify' (TupleT n) (TupleT m) | n == m = pure Map.empty
 
 unify' t u = Left (t,u)
+
+
+-- | Construct an equality constraint. The implementation of 'Pred' varies
+-- across versions of Template Haskell.
+equalPred :: Type -> Type -> Pred
+equalPred x y =
+#if MIN_VERSION_template_haskell(2,10,0)
+  AppT (AppT EqualityT x) y
+#else
+  EqualP x y
+#endif
+
+-- | Construct a typeclass constraint. The implementation of 'Pred' varies
+-- across versions of Template Haskell.
+classPred :: Type {- ^ class -} -> [Type] {- ^ parameters -} -> Pred
+classPred =
+#if MIN_VERSION_template_haskell(2,10,0)
+  foldl AppT
+#else
+  ClassP
+#endif

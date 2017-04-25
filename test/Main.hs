@@ -75,16 +75,10 @@ gadtrec1Test =
            [c] = datatypeCons info
            [v1,v2] = constructorVars c
 
-#if MIN_VERSION_template_haskell(2,10,0)
-           expectedCxt = [AppT (AppT EqualityT (VarT a))
-                               (AppT (AppT (TupleT 2) (VarT (tvName v1)))
-                                     (VarT (tvName v2)))]
-#else
-           expectedCxt = [EqualP (VarT a)
-                                 (AppT (AppT (TupleT 2) (VarT (tvName v1)))
-                                       (VarT (tvName v2)))]
-
-#endif
+           expectedCxt = [equalPred
+                            (VarT a)
+                            (AppT (AppT (TupleT 2) (VarT (tvName v1)))
+                                  (VarT (tvName v2)))]
 
        unless (c == ConstructorInfo 'Gadtrecc1 [v1,v2] expectedCxt
                         [VarT (tvName v1), VarT (tvName v2)]
