@@ -293,7 +293,7 @@ instance TypeSubstitution Type where
         ForallT tvs (applySubstitution subst' context)
                     (applySubstitution subst' t)
       go (AppT f x)      = AppT (go f) (go x)
-      go (SigT t k)      = SigT (go t) (go k)
+      go (SigT t k)      = SigT (go t) (applySubstitution subst k) -- k could be Kind
       go (VarT v)        = Map.findWithDefault (VarT v) v subst
 #if MIN_VERSION_template_haskell(2,11,0)
       go (InfixT l c r)  = InfixT (go l) c (go r)
