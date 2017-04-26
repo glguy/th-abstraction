@@ -129,7 +129,7 @@ normalizeDec (DataD context name tyvars _kind cons derives) =
 normalizeDec (NewtypeInstD context name params _kind con derives) =
   normalizeDec' context name params [con] (extractDerivCxt derives) NewtypeInstance
 normalizeDec (DataInstD context name params _kind cons derives) =
-  normalizeDec' context name params cons (extractDerivCxt derives) DatatypeInstance
+  normalizeDec' context name params cons (extractDerivCxt derives) DataInstance
 #elif MIN_VERSION_template_haskell(2,11,0)
 normalizeDec (NewtypeD context name tyvars _kind con derives) =
   normalizeDec' context name (bndrParams tyvars) [con] derives Newtype
@@ -147,7 +147,7 @@ normalizeDec (DataD context name tyvars cons derives) =
 normalizeDec (NewtypeInstD context name params con derives) =
   normalizeDec' context name params [con] (map ConT derives) NewtypeInstance
 normalizeDec (DataInstD context name params cons derives) =
-  normalizeDec' context name params cons (map ConT derives) DatatypeInstance
+  normalizeDec' context name params cons (map ConT derives) DataInstance
 #endif
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
