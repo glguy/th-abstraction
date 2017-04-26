@@ -11,6 +11,36 @@ This module provides a flattened view of information about data types
 and newtypes that can be supported uniformly across multiple verisons
 of the template-haskell package.
 
+Sample output for @'reifyDatatype' ''Maybe@
+
+@
+'DatatypeInfo'
+ { 'datatypeContext' = []
+ , 'datatypeName' = GHC.Base.Maybe
+ , 'datatypeVars' = [ 'VarT' a_3530822107858468866 ]
+ , 'datatypeVariant' = 'Datatype'
+ , 'datatypeCons' =
+     [ 'ConstructorInfo'
+         { 'constructorName' = GHC.Base.Nothing
+         , 'constructorVars' = []
+         , 'constructorContext' = []
+         , 'constructorFields' = []
+         , 'constructorVariant' = 'NormalConstructor'
+         }
+     , 'ConstructorInfo'
+         { 'constructorName' = GHC.Base.Just
+         , 'constructorVars' = []
+         , 'constructorContext' = []
+         , 'constructorFields' = [ 'VarT' a_3530822107858468866 ]
+         , 'constructorVariant' = 'NormalConstructor'
+         }
+     ]
+ }
+@
+
+Datatypes declared with GADT syntax are normalized to constructors with existentially
+quantified type variables and equality constraints.
+
 -}
 module Language.Haskell.TH.Datatype
   (
