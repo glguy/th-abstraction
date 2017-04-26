@@ -62,7 +62,6 @@ data DatatypeInfo = DatatypeInfo
   { datatypeContext :: Cxt               -- ^ Data type context (deprecated)
   , datatypeName    :: Name              -- ^ Type constructor
   , datatypeVars    :: [Type]            -- ^ Type parameters
-  , datatypeDerives :: [Type]            -- ^ Derived constraints
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
@@ -90,7 +89,6 @@ data ConstructorInfo = ConstructorInfo
 -- | Possible variants of data constructors.
 data ConstructorVariant
   = NormalConstructor        -- ^ Constructor without field names
-  | InfixConstructor         -- ^ Infix constructor
   | RecordConstructor [Name] -- ^ Constructor with field names
   deriving (Show, Eq, Ord, Typeable, Data, Generic)
 
@@ -122,52 +120,47 @@ normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 -- Fail in 'Q' otherwise.
 normalizeDec :: Dec -> Q DatatypeInfo
 #if MIN_VERSION_template_haskell(2,12,0)
-normalizeDec (NewtypeD context name tyvars _kind con derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] (extractDerivCxt derives) Newtype
-normalizeDec (DataD context name tyvars _kind cons derives) =
-  normalizeDec' context name (bndrParams tyvars) cons (extractDerivCxt derives) Datatype
-normalizeDec (NewtypeInstD context name params _kind con derives) =
-  normalizeDec' context name params [con] (extractDerivCxt derives) NewtypeInstance
-normalizeDec (DataInstD context name params _kind cons derives) =
-  normalizeDec' context name params cons (extractDerivCxt derives) DataInstance
+normalizeDec (NewtypeD context name tyvars _kind con _derives) =
+  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+normalizeDec (DataD context name tyvars _kind cons _derives) =
+  normalizeDec' context name (bndrParams tyvars) cons Datatype
+normalizeDec (NewtypeInstD context name params _kind con _derives) =
+  normalizeDec' context name params [con] NewtypeInstance
+normalizeDec (DataInstD context name params _kind cons _derives) =
+  normalizeDec' context name params cons DataInstance
 #elif MIN_VERSION_template_haskell(2,11,0)
-normalizeDec (NewtypeD context name tyvars _kind con derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] derives Newtype
-normalizeDec (DataD context name tyvars _kind cons derives) =
-  normalizeDec' context name (bndrParams tyvars) cons derives Datatype
-normalizeDec (NewtypeInstD context name params _kind con derives) =
-  normalizeDec' context name params [con] derives NewtypeInstance
-normalizeDec (DataInstD context name params _kind cons derives) =
-  normalizeDec' context name params cons derives DataInstance
+normalizeDec (NewtypeD context name tyvars _kind con _derives) =
+  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+normalizeDec (DataD context name tyvars _kind cons _derives) =
+  normalizeDec' context name (bndrParams tyvars) cons Datatype
+normalizeDec (NewtypeInstD context name params _kind con _derives) =
+  normalizeDec' context name params [con] NewtypeInstance
+normalizeDec (DataInstD context name params _kind cons _derives) =
+  normalizeDec' context name params cons DataInstance
 #else
-normalizeDec (NewtypeD context name tyvars con derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] (map ConT derives) Newtype
-normalizeDec (DataD context name tyvars cons derives) =
-  normalizeDec' context name (bndrParams tyvars) cons (map ConT derives) Datatype
-normalizeDec (NewtypeInstD context name params con derives) =
-  normalizeDec' context name params [con] (map ConT derives) NewtypeInstance
-normalizeDec (DataInstD context name params cons derives) =
-  normalizeDec' context name params cons (map ConT derives) DataInstance
+normalizeDec (NewtypeD context name tyvars con _derives) =
+  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+normalizeDec (DataD context name tyvars cons _derives) =
+  normalizeDec' context name (bndrParams tyvars) cons Datatype
+normalizeDec (NewtypeInstD context name params con _derives) =
+  normalizeDec' context name params [con] NewtypeInstance
+normalizeDec (DataInstD context name params cons _derives) =
+  normalizeDec' context name params cons DataInstance
 #endif
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
 bndrParams :: [TyVarBndr] -> [Type]
 bndrParams = map (VarT . tvName)
 
-#if MIN_VERSION_template_haskell(2,12,0)
-extractDerivCxt :: [DerivClause] -> Cxt
-extractDerivCxt xs = [ c | DerivClause _ cs <- xs, c <- cs ]
-#endif
 
 normalizeDec' ::
   Cxt             {- ^ Datatype context    -} ->
   Name            {- ^ Type constructor    -} ->
   [Type]          {- ^ Type parameters     -} ->
   [Con]           {- ^ Constructors        -} ->
-  [Type]          {- ^ Derived constraints -} ->
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
-normalizeDec' context name params cons derives variant =
+normalizeDec' context name params cons variant =
   do let vs = freeVariables params
      cons' <- concat <$> traverse (normalizeCon name vs) cons
      pure DatatypeInfo
@@ -175,7 +168,6 @@ normalizeDec' context name params cons derives variant =
        , datatypeName    = name
        , datatypeVars    = params
        , datatypeCons    = cons'
-       , datatypeDerives = derives
        , datatypeVariant = variant
        }
 
@@ -194,7 +186,7 @@ normalizeCon typename vars = go [] []
         NormalC n xs ->
           pure [ConstructorInfo n tyvars context (map snd xs) NormalConstructor]
         InfixC l n r ->
-          pure [ConstructorInfo n tyvars context [snd l,snd r] InfixConstructor]
+          pure [ConstructorInfo n tyvars context [snd l,snd r] NormalConstructor]
         RecC n xs ->
           let fns = takeFieldNames xs in
           pure [ConstructorInfo n tyvars context

@@ -38,7 +38,7 @@ adt1Test =
        unless (c1 == ConstructorInfo 'Adtc1 [] [] [AppT (AppT (TupleT 2) (VarT a)) (VarT b)] NormalConstructor)
               (fail "Bad adtc1")
 
-       unless (c2 == ConstructorInfo 'Adtc2 [] [] [ConT ''Bool, ConT ''Int] InfixConstructor)
+       unless (c2 == ConstructorInfo 'Adtc2 [] [] [ConT ''Bool, ConT ''Int] NormalConstructor)
               (fail "Bad adtc2")
 
        [| putStrLn "Adt1 tests passed" |]
