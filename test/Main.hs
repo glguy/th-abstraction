@@ -29,7 +29,7 @@ adt1Test :: IO ()
 adt1Test =
   $(do info <- reifyDatatype ''Adt1
 
-       let [a,b]   = map tvName (datatypeVars info)
+       let [a,b]   = freeVariables (datatypeVars info)
            [c1,c2] = datatypeCons info
 
        unless (datatypeName info == ''Adt1) (fail "bad name adt1")
@@ -48,7 +48,7 @@ gadt1Test :: IO ()
 gadt1Test =
   $(do info <- reifyDatatype ''Gadt1
 
-       let [a]     = map tvName (datatypeVars info)
+       let [a]     = freeVariables (datatypeVars info)
            [c1,c2] = datatypeCons info
 
        unless (c1 == ConstructorInfo 'Gadtc1 [] [equalPred (VarT a) (ConT ''Int)]
@@ -67,7 +67,7 @@ gadtrec1Test :: IO ()
 gadtrec1Test =
   $(do info <- reifyDatatype ''Gadtrec1
 
-       let [a] = map tvName (datatypeVars info)
+       let [a] = freeVariables (datatypeVars info)
            [c] = datatypeCons info
            [v1,v2] = constructorVars c
 
