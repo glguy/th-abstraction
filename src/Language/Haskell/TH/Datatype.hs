@@ -73,6 +73,7 @@ module Language.Haskell.TH.Datatype
   , datatypeType
   ) where
 
+import           Control.Monad (when)
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
@@ -155,8 +156,10 @@ normalizeDec (NewtypeD context name tyvars _kind con _derives) =
 normalizeDec (DataD context name tyvars _kind cons _derives) =
   normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params _kind con _derives) =
+  repair13618 =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params _kind cons _derives) =
+  repair13618 =<<
   normalizeDec' context name params cons DataInstance
 #elif MIN_VERSION_template_haskell(2,11,0)
 normalizeDec (NewtypeD context name tyvars _kind con _derives) =
@@ -164,8 +167,10 @@ normalizeDec (NewtypeD context name tyvars _kind con _derives) =
 normalizeDec (DataD context name tyvars _kind cons _derives) =
   normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params _kind con _derives) =
+  repair13618 =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params _kind cons _derives) =
+  repair13618 =<<
   normalizeDec' context name params cons DataInstance
 #else
 normalizeDec (NewtypeD context name tyvars con _derives) =
@@ -173,8 +178,10 @@ normalizeDec (NewtypeD context name tyvars con _derives) =
 normalizeDec (DataD context name tyvars cons _derives) =
   normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params con _derives) =
+  repair13618 =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params cons _derives) =
+  repair13618 =<<
   normalizeDec' context name params cons DataInstance
 #endif
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
@@ -494,3 +501,41 @@ x <| (y :| ys) = x :| (y : ys)
 reverseNonEmpty :: NonEmpty a -> NonEmpty a
 reverseNonEmpty (x :| xs) = y :| ys
   where y:ys = reverse (x:xs)
+
+------------------------------------------------------------------------
+
+-- | Prior to GHC 8.2.1, reify was broken for data instances and newtype
+-- instances. This code attempts to detect the problem and repair it if
+-- possible.
+--
+-- The particular problem is that the type variables used in the patterns
+-- while defining a data family instance do not completely match those
+-- used when defining the fields of the value constructors beyond the
+-- base names. This code attempts to recover the relationship between the
+-- type variables.
+--
+-- It is possible, however, to generate these kinds of declarations by
+-- means other than reify. In these cases the name bases might not be
+-- unique and the declarations might be well formed. In such a case this
+-- code attempts to avoid altering the declaration.
+--
+-- https://ghc.haskell.org/trac/ghc/ticket/13618
+repair13618 :: DatatypeInfo -> Q DatatypeInfo
+repair13618 info =
+  do s <- sequenceA (Map.fromList substList)
+     return info { datatypeCons = applySubstitution s (datatypeCons info) }
+
+  where
+    used  = freeVariables (datatypeCons info)
+    bound = freeVariables (datatypeVars info)
+    free  = used \\ bound
+
+    substList =
+      [ (u, substEntry u vs)
+      | u <- free
+      , let vs = [v | v <- bound, nameBase v == nameBase u]
+      ]
+
+    substEntry _ [v] = varT v
+    substEntry u []  = fail ("Impossible free variable: " ++ show u)
+    substEntry u _   = fail ("Ambiguous free variable: "  ++ show u)
