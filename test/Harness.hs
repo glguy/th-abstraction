@@ -1,14 +1,29 @@
 {-# Language TemplateHaskell #-}
-module Harness where
 
-import Control.Monad
+{-|
+Module      : Harness
+Description : Comparison functions for data type info used in tests
+Copyright   : Eric Mertens 2017
+License     : ISC
+Maintainer  : emertens@gmail.com
+
+This module provides comparison functions that are able to check
+that the computed 'DatatypeInfo' values match the expected ones
+up to alpha renaming.
+
+-}
+module Harness (validate) where
+
+import           Control.Monad
 import qualified Data.Map as Map
-import Language.Haskell.TH
-import Language.Haskell.TH.Datatype
+import           Language.Haskell.TH
+import           Language.Haskell.TH.Datatype
 
 validate :: DatatypeInfo -> DatatypeInfo -> ExpQ
 validate x y = either fail (\_ -> [| return () |]) (equateDI x y)
 
+-- | If the arguments are equal up to renaming return @'Right' ()@,
+-- otherwise return a string exlaining the mismatch.
 equateDI :: DatatypeInfo -> DatatypeInfo -> Either String ()
 equateDI dat1 dat2 =
   do check "datatypeName"     datatypeName            dat1 dat2
@@ -31,6 +46,8 @@ equateDI dat1 dat2 =
        (datatypeCons dat1)
        (applySubstitution sub (datatypeCons dat2))
 
+-- | If the arguments are equal up to renaming return @'Right' ()@,
+-- otherwise return a string exlaining the mismatch.
 equateCI :: ConstructorInfo -> ConstructorInfo -> Either String ()
 equateCI con1 con2 =
   do check "constructorName"     constructorName    con1 con2

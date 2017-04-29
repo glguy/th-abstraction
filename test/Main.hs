@@ -1,5 +1,17 @@
 {-# Language KindSignatures, TemplateHaskell, GADTs #-}
 
+{-|
+Module      : Main
+Description : Test cases for the th-abstraction package
+Copyright   : Eric Mertens 2017
+License     : ISC
+Maintainer  : emertens@gmail.com
+
+This module checks that the 'reifyDatatype' logic works consistently
+across a wide range of datatypes. These tests are validated across
+the versions of GHC supported by this package.
+
+-}
 module Main (main) where
 
 import Control.Monad
@@ -34,6 +46,7 @@ data Gadt2 :: * -> * -> * where
 
 return [] -- segment type declarations above from refiy below
 
+-- | Test entry point. Tests will pass or fail at compile time.
 main :: IO ()
 main =
   do adt1Test
