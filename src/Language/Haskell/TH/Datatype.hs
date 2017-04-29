@@ -8,7 +8,7 @@ License     : ISC
 Maintainer  : emertens@gmail.com
 
 This module provides a flattened view of information about data types
-and newtypes that can be supported uniformly across multiple verisons
+and newtypes that can be supported uniformly across multiple versions
 of the template-haskell package.
 
 Sample output for @'reifyDatatype' ''Maybe@
@@ -16,22 +16,22 @@ Sample output for @'reifyDatatype' ''Maybe@
 @
 'DatatypeInfo'
  { 'datatypeContext' = []
- , 'datatypeName' = GHC.Base.Maybe
- , 'datatypeVars' = [ 'VarT' a_3530822107858468866 ]
+ , 'datatypeName'    = GHC.Base.Maybe
+ , 'datatypeVars'    = [ 'VarT' a_3530822107858468866 ]
  , 'datatypeVariant' = 'Datatype'
- , 'datatypeCons' =
+ , 'datatypeCons'    =
      [ 'ConstructorInfo'
-         { 'constructorName' = GHC.Base.Nothing
-         , 'constructorVars' = []
+         { 'constructorName'    = GHC.Base.Nothing
+         , 'constructorVars'    = []
          , 'constructorContext' = []
-         , 'constructorFields' = []
+         , 'constructorFields'  = []
          , 'constructorVariant' = 'NormalConstructor'
          }
      , 'ConstructorInfo'
-         { 'constructorName' = GHC.Base.Just
-         , 'constructorVars' = []
+         { 'constructorName'    = GHC.Base.Just
+         , 'constructorVars'    = []
          , 'constructorContext' = []
-         , 'constructorFields' = [ 'VarT' a_3530822107858468866 ]
+         , 'constructorFields'  = [ 'VarT' a_3530822107858468866 ]
          , 'constructorVariant' = 'NormalConstructor'
          }
      ]
@@ -124,7 +124,7 @@ data ConstructorVariant
 
 
 -- | Construct a Type using the datatype's type constructor and type
--- parameteters.
+-- parameters.
 datatypeType :: DatatypeInfo -> Type
 datatypeType di
   = foldl AppT (ConT (datatypeName di))
@@ -330,7 +330,7 @@ takeFieldTypes xs = [a | (_,_,a) <- xs]
 -- | Add universal quantifier for all free variables in the type. This is
 -- useful when constructing a type signature for a declaration.
 -- This code is careful to ensure that the order of the variables quantified
--- is determined by their order of appearance in the type singnature. (In
+-- is determined by their order of appearance in the type signature. (In
 -- contrast with being dependent upon the Ord instance for 'Name')
 --
 quantifyType :: Type -> Type
@@ -404,7 +404,7 @@ instance TypeSubstitution ConstructorInfo where
        , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
 
--- Pred became a type synonym for Type
+-- 'Pred' became a type synonym for 'Type'
 #if !MIN_VERSION_template_haskell(2,10,0)
 instance TypeSubstitution Pred where
   freeVariables (ClassP _ xs) = freeVariables xs
@@ -415,7 +415,7 @@ instance TypeSubstitution Pred where
                                             (applySubstitution p y)
 #endif
 
--- Kind became a type synonym for Type. Previously there were no kind variables
+-- 'Kind' became a type synonym for 'Type'. Previously there were no kind variables
 #if !MIN_VERSION_template_haskell(2,8,0)
 instance TypeSubstitution Kind where
   freeVariables _ = []
@@ -489,7 +489,7 @@ classPred =
 
 ------------------------------------------------------------------------
 
--- NonEmpty didn't move into base into recently. Reimplementing it locally
+-- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
 -- saves dependencies for supporting older GHCs
 
 data NonEmpty a = a :| [a]
