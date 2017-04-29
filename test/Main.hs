@@ -110,7 +110,7 @@ showableTest :: IO ()
 showableTest =
   $(do info <- reifyDatatype ''Showable
        let [c] = datatypeCons info
-           [a] = VarT . tvName <$> constructorVars c
+           [a] = map (VarT . tvName) (constructorVars c)
 
        unless (c == ConstructorInfo 'Showable
                         (constructorVars c)
