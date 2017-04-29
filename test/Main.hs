@@ -27,6 +27,11 @@ data Showable :: * where
 
 data R = R1 { field1, field2 :: Int }
 
+data Gadt2 :: * -> * -> * where
+  Gadt2c1 :: Gadt2 a [a]
+  Gadt2c2 :: Gadt2 [a] a
+  Gadt2c3 :: Gadt2 [a] [a]
+
 return [] -- segment type declarations above from refiy below
 
 main :: IO ()
@@ -189,3 +194,33 @@ recordTest =
                ]
            }
    )
+
+gadt2Test :: IO ()
+gadt2Test =
+  $(do info <- reifyDatatype ''Gadt2
+       let [a,b] = map (VarT . mkName) ["a","b"]
+           x     = mkName "x"
+           con   = ConstructorInfo
+                     { constructorName    = undefined
+                     , constructorVars    = []
+                     , constructorContext = []
+                     , constructorFields  = []
+                     , constructorVariant = NormalConstructor }
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Gadt2
+           , datatypeContext = []
+           , datatypeVars    = [a,b]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ con { constructorName = 'Gadt2c1
+                     , constructorContext = [equalPred b (AppT ListT a)] }
+               , con { constructorName = 'Gadt2c2
+                     , constructorContext = [equalPred a (AppT ListT b)] }
+               , con { constructorName = 'Gadt2c3
+                     , constructorVars = [PlainTV x]
+                     , constructorContext =
+                         [equalPred a (AppT ListT (VarT x))
+                         ,equalPred b (AppT ListT (VarT x))] } ]
+           }
+  )
