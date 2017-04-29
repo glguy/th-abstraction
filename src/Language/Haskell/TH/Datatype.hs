@@ -73,7 +73,6 @@ module Language.Haskell.TH.Datatype
   , datatypeType
   ) where
 
-import           Control.Monad (when)
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
