@@ -267,9 +267,9 @@ normalizeGadtC typename vars tyvars context names innerType fields variant =
        _ -> fail "normalizeGadtC: Expected type constructor application"
 
 mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
-mergeArguments ns ts = foldl' aux (Map.empty, []) (zip ns ts)
+mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
   where
-    aux (subst, context) (n,p) =
+    aux (n,p) (subst, context) =
       case p of
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)

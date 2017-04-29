@@ -98,8 +98,8 @@ equalTest =
        let [a,b] = datatypeVars info
            [c] = datatypeCons info
 
-       unless (c == ConstructorInfo 'Equalc [] [equalPred b a]
-                        [ListT `AppT` a, ConT ''Maybe `AppT` a]
+       unless (c == ConstructorInfo 'Equalc [] [equalPred a b]
+                        [ListT `AppT` b, ConT ''Maybe `AppT` b]
                         NormalConstructor)
               (fail ("bad constructor for equal " ++ show c))
 
