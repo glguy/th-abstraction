@@ -551,8 +551,14 @@ dataDCompat ::
   [ConQ]      {- ^ constructor definitions -} ->
   [Name]      {- ^ derived class names     -} ->
   DecQ
-#if MIN_VERSION_template_haskell(2,11,0)
-dataDCompat c n ts cs ds = dataD c n ts Nothing cs (pure (map ConT ds))
+#if MIN_VERSION_template_haskell(2,12,0)
+dataDCompat c n ts cs ds =
+  dataD c n ts Nothing cs
+    (if null ds then [] else [derivClause Nothing (map conT ds)])
+#elif MIN_VERSION_template_haskell(2,11,0)
+dataDCompat c n ts cs ds =
+  dataD c n ts Nothing cs
+    (pure (map ConT ds))
 #else
 dataDCompat = dataD
 #endif
