@@ -65,6 +65,8 @@ module Language.Haskell.TH.Datatype
   , equalPred
   , classPred
 
+  -- * Backward compatible data definitions
+  , dataDCompat
 
   -- * Convenience functions
   , resolveTypeSynonyms
@@ -538,3 +540,19 @@ repair13618 info =
     substEntry _ [v] = varT v
     substEntry u []  = fail ("Impossible free variable: " ++ show u)
     substEntry u _   = fail ("Ambiguous free variable: "  ++ show u)
+
+------------------------------------------------------------------------
+
+-- | Backward compatible version of 'dataD'
+dataDCompat ::
+  CxtQ        {- ^ context                 -} ->
+  Name        {- ^ type constructor        -} ->
+  [TyVarBndr] {- ^ type parameters         -} ->
+  [ConQ]      {- ^ constructor definitions -} ->
+  [Name]      {- ^ derived class names     -} ->
+  DecQ
+#if MIN_VERSION_template_haskell(2,11,0)
+dataDCompat c n ts cs ds = dataD c n ts Nothing cs (pure (map ConT ds))
+#else
+dataDCompat = dataD
+#endif
