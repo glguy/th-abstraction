@@ -6,6 +6,8 @@ import Control.Monad
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
 
+import Harness
+
 type Gadt1Int = Gadt1 Int
 
 data Gadt1 a where
@@ -15,13 +17,15 @@ data Gadt1 a where
 data Adt1 a b = Adtc1 (a,b) | Bool `Adtc2` Int
 
 data Gadtrec1 a where
-  Gadtrecc1 :: { gadtrec1a :: a, gadtrec1b :: b } -> Gadtrec1 (a,b)
+  Gadtrecc1, Gadtrecc2 :: { gadtrec1a :: a, gadtrec1b :: b } -> Gadtrec1 (a,b)
 
-data Equal :: * -> * -> * where
-  Equalc :: [a] -> Maybe a -> Equal a a
+data Equal :: * -> * -> * -> * where
+  Equalc :: (Read a, Show a) => [a] -> Maybe a -> Equal a a a
 
 data Showable :: * where
   Showable :: Show a => a -> Showable
+
+data R = R1 { field1, field2 :: Int }
 
 return [] -- segment type declarations above from refiy below
 
@@ -32,92 +36,156 @@ main =
      gadtrec1Test
      equalTest
      showableTest
+     recordTest
 
 adt1Test :: IO ()
 adt1Test =
   $(do info <- reifyDatatype ''Adt1
 
-       let [a,b]   = freeVariables (datatypeVars info)
-           [c1,c2] = datatypeCons info
+       let [a,b] = map (VarT . mkName) ["a","b"]
 
-       unless (datatypeName info == ''Adt1) (fail "bad name adt1")
-       unless (datatypeVariant info == Datatype) (fail "bad variant adt1")
-
-       unless (c1 == ConstructorInfo 'Adtc1 [] [] [AppT (AppT (TupleT 2) (VarT a)) (VarT b)] NormalConstructor)
-              (fail "Bad adtc1")
-
-       unless (c2 == ConstructorInfo 'Adtc2 [] [] [ConT ''Bool, ConT ''Int] NormalConstructor)
-              (fail "Bad adtc2")
-
-       [| putStrLn "Adt1 tests passed" |]
+       validate info
+         DatatypeInfo
+           { datatypeName = ''Adt1
+           , datatypeContext = []
+           , datatypeVars = [a, b]
+           , datatypeVariant = Datatype
+           , datatypeCons =
+               [ ConstructorInfo
+                   { constructorName = 'Adtc1
+                   , constructorContext = []
+                   , constructorVars = []
+                   , constructorFields = [AppT (AppT (TupleT 2) a) b]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName = 'Adtc2
+                   , constructorContext = []
+                   , constructorVars = []
+                   , constructorFields = [ConT ''Bool, ConT ''Int]
+                   , constructorVariant = NormalConstructor }
+               ]
+           }
    )
 
 gadt1Test :: IO ()
 gadt1Test =
   $(do info <- reifyDatatype ''Gadt1
 
-       let [a]     = datatypeVars info
-           [c1,c2] = datatypeCons info
+       let a = VarT (mkName "a")
 
-       unless (c1 == ConstructorInfo 'Gadtc1 [] [equalPred a (ConT ''Int)]
-                         [ConT ''Int] NormalConstructor)
-              (fail ("bad Gadtc1 " ++ show c1))
-
-       unless (c2 == ConstructorInfo 'Gadtc2 [] []
-                        [AppT (AppT (TupleT 2) a) a]
-                        NormalConstructor)
-              (fail ("bad Gadtc2 " ++ show c2))
-
-       [| putStrLn "Gadt1 tests passed" |]
+       validate info
+         DatatypeInfo
+           { datatypeName = ''Gadt1
+           , datatypeContext = []
+           , datatypeVars = [a]
+           , datatypeVariant = Datatype
+           , datatypeCons =
+               [ ConstructorInfo
+                   { constructorName = 'Gadtc1
+                   , constructorVars = []
+                   , constructorContext = [equalPred a (ConT ''Int)]
+                   , constructorFields = [ConT ''Int]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName = 'Gadtc2
+                   , constructorVars = []
+                   , constructorContext = []
+                   , constructorFields = [AppT (AppT (TupleT 2) a) a]
+                   , constructorVariant = NormalConstructor }
+               ]
+           }
    )
 
 gadtrec1Test :: IO ()
 gadtrec1Test =
   $(do info <- reifyDatatype ''Gadtrec1
 
-       let [a] = datatypeVars info
-           [c] = datatypeCons info
-           [v1,v2] = constructorVars c
+       let a = VarT (mkName "a")
+       let [v1,v2] = map mkName ["v1","v2"]
 
-           expectedCxt = [equalPred
-                            a
-                            (AppT (AppT (TupleT 2) (VarT (tvName v1)))
-                                  (VarT (tvName v2)))]
+       let con = ConstructorInfo
+                   { constructorName    = 'Gadtrecc1
+                   , constructorVars    = [PlainTV v1, PlainTV v2]
+                   , constructorContext =
+                        [equalPred a (AppT (AppT (TupleT 2) (VarT v1)) (VarT v2))]
+                   , constructorFields  = [VarT v1, VarT v2]
+                   , constructorVariant = RecordConstructor ['gadtrec1a, 'gadtrec1b] }
 
-       unless (c == ConstructorInfo 'Gadtrecc1 [v1,v2] expectedCxt
-                        [VarT (tvName v1), VarT (tvName v2)]
-                        (RecordConstructor [ 'gadtrec1a, 'gadtrec1b ]))
-              (fail ("bad constructor for gadtrec1 " ++ show c))
-
-       [| putStrLn "Gadtrecc1 tests passed" |]
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Gadtrec1
+           , datatypeContext = []
+           , datatypeVars    = [a]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ con, con { constructorName = 'Gadtrecc2 } ]
+           }
    )
 
 equalTest :: IO ()
 equalTest =
   $(do info <- reifyDatatype ''Equal
-       let [a,b] = datatypeVars info
-           [c] = datatypeCons info
 
-       unless (c == ConstructorInfo 'Equalc [] [equalPred a b]
-                        [ListT `AppT` b, ConT ''Maybe `AppT` b]
-                        NormalConstructor)
-              (fail ("bad constructor for equal " ++ show c))
+       let [a,b,c] = map (VarT . mkName) ["a","b","c"]
 
-       [| putStrLn "Equal tests passed" |]
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Equal
+           , datatypeContext = []
+           , datatypeVars    = [a,b,c]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'Equalc
+                   , constructorVars    = []
+                   , constructorContext =
+                        [equalPred a c, equalPred b c, classPred ''Read [c], classPred ''Show [c] ]
+                   , constructorFields  =
+                        [ListT `AppT` c, ConT ''Maybe `AppT` c]
+                   , constructorVariant = NormalConstructor }
+               ]
+           }
    )
 
 showableTest :: IO ()
 showableTest =
   $(do info <- reifyDatatype ''Showable
-       let [c] = datatypeCons info
-           [a] = map (VarT . tvName) (constructorVars c)
 
-       unless (c == ConstructorInfo 'Showable
-                        (constructorVars c)
-                        [classPred ''Show [a]]
-                        [a]
-                        NormalConstructor)
-              (fail ("bad constructor for Showable " ++ show c))
+       let a = mkName "a"
 
-       [| putStrLn "Showable tests passed" |]
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Showable
+           , datatypeContext = []
+           , datatypeVars    = []
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'Showable
+                   , constructorVars    = [PlainTV a]
+                   , constructorContext = [classPred ''Show [VarT a]]
+                   , constructorFields  = [VarT a]
+                   , constructorVariant = NormalConstructor }
+               ]
+           }
+   )
+
+recordTest :: IO ()
+recordTest =
+  $(do info <- reifyDatatype ''R
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''R
+           , datatypeContext = []
+           , datatypeVars    = []
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'R1
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [ConT ''Int, ConT ''Int]
+                   , constructorVariant = RecordConstructor ['field1, 'field2] }
+               ]
+           }
    )
