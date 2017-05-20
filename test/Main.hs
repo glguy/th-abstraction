@@ -1,4 +1,4 @@
-{-# Language KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
 
 {-|
 Module      : Main
@@ -44,6 +44,9 @@ data Gadt2 :: * -> * -> * where
   Gadt2c2 :: Gadt2 [a] a
   Gadt2c3 :: Gadt2 [a] [a]
 
+data family DF a
+data instance DF (Maybe a) = DFMaybe Int [a]
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -55,6 +58,7 @@ main =
      equalTest
      showableTest
      recordTest
+     dataFamilyTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -235,5 +239,25 @@ gadt2Test =
                      , constructorContext =
                          [equalPred a (AppT ListT (VarT x))
                          ,equalPred b (AppT ListT (VarT x))] } ]
+           }
+  )
+
+dataFamilyTest :: IO ()
+dataFamilyTest =
+  $(do info <- reifyDatatype 'DFMaybe
+       let a = mkName "a"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''DF
+           , datatypeContext = []
+           , datatypeVars    = [AppT (ConT ''Maybe) (VarT a)]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'DFMaybe
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [ConT ''Int, ListT `AppT` VarT a]
+                   , constructorVariant = NormalConstructor } ]
            }
   )

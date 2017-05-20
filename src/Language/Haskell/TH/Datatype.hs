@@ -77,7 +77,7 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.List (union, (\\))
+import           Data.List (find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Control.Monad (foldM)
@@ -145,7 +145,26 @@ reifyDatatype n = normalizeInfo =<< reify n
 -- Fail in 'Q' otherwise.
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
+# if MIN_VERSION_template_haskell(2,11,0)
+normalizeInfo (DataConI name _ parent) = reifyParent name parent
+# else
+normalizeInfo (DataConI name _ parent _) = reifyParent name parent
+# endif
 normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
+
+
+reifyParent :: Name -> Name -> Q DatatypeInfo
+reifyParent con parent =
+  do info <- reify parent
+     case info of
+       TyConI dec -> normalizeDec dec
+       FamilyI _ instances ->
+         do instances' <- traverse normalizeDec instances
+            case find p instances' of
+              Nothing -> fail "PANIC: reifyParent lost the instance"
+              Just dec -> return dec
+  where
+    p info = con `elem` map constructorName (datatypeCons info)
 
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
