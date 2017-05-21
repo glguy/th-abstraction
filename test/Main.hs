@@ -47,6 +47,9 @@ data Gadt2 :: * -> * -> * where
 data family DF a
 data instance DF (Maybe a) = DFMaybe Int [a]
 
+data family DF1 a
+data instance DF1 b = DF1 b
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -59,6 +62,7 @@ main =
      showableTest
      recordTest
      dataFamilyTest
+     ghc78bugTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -258,6 +262,26 @@ dataFamilyTest =
                    , constructorVars    = []
                    , constructorContext = []
                    , constructorFields  = [ConT ''Int, ListT `AppT` VarT a]
+                   , constructorVariant = NormalConstructor } ]
+           }
+  )
+
+ghc78bugTest :: IO ()
+ghc78bugTest =
+  $(do info <- reifyDatatype 'DF1
+       let c = mkName "c"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''DF1
+           , datatypeContext = []
+           , datatypeVars    = [VarT c]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'DF1
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [VarT c]
                    , constructorVariant = NormalConstructor } ]
            }
   )

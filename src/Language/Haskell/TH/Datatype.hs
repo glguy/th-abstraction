@@ -146,25 +146,48 @@ reifyDatatype n = normalizeInfo =<< reify n
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
 # if MIN_VERSION_template_haskell(2,11,0)
-normalizeInfo (DataConI name _ parent) = reifyParent name parent
+normalizeInfo (DataConI name ty parent) = reifyParent name ty parent
 # else
-normalizeInfo (DataConI name _ parent _) = reifyParent name parent
+normalizeInfo (DataConI name ty parent _) = reifyParent name ty parent
 # endif
 normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 
 
-reifyParent :: Name -> Name -> Q DatatypeInfo
-reifyParent con parent =
+reifyParent :: Name -> Type -> Name -> Q DatatypeInfo
+reifyParent con ty parent =
   do info <- reify parent
      case info of
        TyConI dec -> normalizeDec dec
-       FamilyI _ instances ->
-         do instances' <- traverse normalizeDec instances
-            case find p instances' of
+       FamilyI dec instances ->
+         do let instances1 = map (repairInstance dec ty) instances
+	    instances2 <- traverse normalizeDec instances1
+            case find p instances2 of
               Nothing -> fail "PANIC: reifyParent lost the instance"
               Just dec -> return dec
   where
     p info = con `elem` map constructorName (datatypeCons info)
+
+#if (!MIN_VERSION_template_haskell(2,10,0)) && MIN_VERSION_template_haskell(2,9,0)
+    -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
+    -- type variables on the data constructor.
+    repairInstance
+      (FamilyD _ _ dvars _)
+      (ForallT tvars _ _)
+      (NewtypeInstD cx n ts con deriv) =
+        NewtypeInstD cx n (ts ++ extras) con deriv
+      where
+        missing = length dvars - length ts
+        extras  = map (VarT . tvName) (take missing tvars)
+    repairInstance
+      (FamilyD _ _ dvars _)
+      (ForallT tvars _ _)
+      (DataInstD cx n ts cons deriv) =
+        DataInstD cx n (ts ++ extras) cons deriv
+      where
+        missing = length dvars - length ts
+        extras  = map (VarT . tvName) (take missing tvars)
+#endif
+    repairInstance _ _ x = x
 
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
