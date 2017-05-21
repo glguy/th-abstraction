@@ -15,7 +15,6 @@ the versions of GHC supported by this package.
 module Main (main) where
 
 import Language.Haskell.TH
-import Language.Haskell.TH.Lib (starK)
 import Language.Haskell.TH.Datatype
 
 import Harness
@@ -78,7 +77,7 @@ adt1Test =
          DatatypeInfo
            { datatypeName = ''Adt1
            , datatypeContext = []
-           , datatypeVars = [SigT a starK, SigT b starK]
+           , datatypeVars = [a, b]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
@@ -107,7 +106,7 @@ gadt1Test =
          DatatypeInfo
            { datatypeName = ''Gadt1
            , datatypeContext = []
-           , datatypeVars = [SigT a starK]
+           , datatypeVars = [a]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
@@ -145,7 +144,7 @@ gadtrec1Test =
          DatatypeInfo
            { datatypeName    = ''Gadtrec1
            , datatypeContext = []
-           , datatypeVars    = [SigT a starK]
+           , datatypeVars    = [a]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ con, con { constructorName = 'Gadtrecc2 } ]
@@ -162,7 +161,7 @@ equalTest =
          DatatypeInfo
            { datatypeName    = ''Equal
            , datatypeContext = []
-           , datatypeVars    = [SigT a starK, SigT b starK, SigT c starK]
+           , datatypeVars    = [a, b, c]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
@@ -235,7 +234,7 @@ gadt2Test =
          DatatypeInfo
            { datatypeName    = ''Gadt2
            , datatypeContext = []
-           , datatypeVars    = [SigT a starK, SigT b starK]
+           , datatypeVars    = [a, b]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ con { constructorName = 'Gadt2c1
@@ -298,7 +297,7 @@ voidstosTest =
          DatatypeInfo
            { datatypeName    = ''VoidStoS
            , datatypeContext = []
-           , datatypeVars    = [SigT (VarT g) (arrowKCompat starK starK)]
+           , datatypeVars    = [VarT g]
            , datatypeVariant = Datatype
            , datatypeCons    = []
            }
