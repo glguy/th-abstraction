@@ -1,4 +1,4 @@
-{-# Language TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language PolyKinds, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
 
 {-|
 Module      : Main
@@ -22,11 +22,11 @@ import Harness
 
 type Gadt1Int = Gadt1 Int
 
-data Gadt1 a where
+data Gadt1 (a :: *) where
   Gadtc1 :: Int   -> Gadt1Int
   Gadtc2 :: (a,a) -> Gadt1 a
 
-data Adt1 a b = Adtc1 (a,b) | Bool `Adtc2` Int
+data Adt1 (a :: *) (b :: *) = Adtc1 (a,b) | Bool `Adtc2` Int
 
 data Gadtrec1 a where
   Gadtrecc1, Gadtrecc2 :: { gadtrec1a :: a, gadtrec1b :: b } -> Gadtrec1 (a,b)
@@ -44,10 +44,10 @@ data Gadt2 :: * -> * -> * where
   Gadt2c2 :: Gadt2 [a] a
   Gadt2c3 :: Gadt2 [a] [a]
 
-data family DF a
+data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 
-data family DF1 a
+data family DF1 (a :: *)
 data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)
