@@ -14,8 +14,8 @@ the versions of GHC supported by this package.
 -}
 module Main (main) where
 
-import Control.Monad
 import Language.Haskell.TH
+import Language.Haskell.TH.Lib (starK)
 import Language.Haskell.TH.Datatype
 
 import Harness
@@ -50,6 +50,8 @@ data instance DF (Maybe a) = DFMaybe Int [a]
 data family DF1 a
 data instance DF1 b = DF1 b
 
+data VoidStoS (f :: * -> *)
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -57,12 +59,14 @@ main :: IO ()
 main =
   do adt1Test
      gadt1Test
+     gadt2Test
      gadtrec1Test
      equalTest
      showableTest
      recordTest
      dataFamilyTest
      ghc78bugTest
+     voidstosTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -74,7 +78,7 @@ adt1Test =
          DatatypeInfo
            { datatypeName = ''Adt1
            , datatypeContext = []
-           , datatypeVars = [a, b]
+           , datatypeVars = [SigT a starK, SigT b starK]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
@@ -103,7 +107,7 @@ gadt1Test =
          DatatypeInfo
            { datatypeName = ''Gadt1
            , datatypeContext = []
-           , datatypeVars = [a]
+           , datatypeVars = [SigT a starK]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
@@ -141,7 +145,7 @@ gadtrec1Test =
          DatatypeInfo
            { datatypeName    = ''Gadtrec1
            , datatypeContext = []
-           , datatypeVars    = [a]
+           , datatypeVars    = [SigT a starK]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ con, con { constructorName = 'Gadtrecc2 } ]
@@ -158,7 +162,7 @@ equalTest =
          DatatypeInfo
            { datatypeName    = ''Equal
            , datatypeContext = []
-           , datatypeVars    = [a,b,c]
+           , datatypeVars    = [SigT a starK, SigT b starK, SigT c starK]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
@@ -231,7 +235,7 @@ gadt2Test =
          DatatypeInfo
            { datatypeName    = ''Gadt2
            , datatypeContext = []
-           , datatypeVars    = [a,b]
+           , datatypeVars    = [SigT a starK, SigT b starK]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ con { constructorName = 'Gadt2c1
@@ -283,5 +287,19 @@ ghc78bugTest =
                    , constructorContext = []
                    , constructorFields  = [VarT c]
                    , constructorVariant = NormalConstructor } ]
+           }
+  )
+
+voidstosTest :: IO ()
+voidstosTest =
+  $(do info <- reifyDatatype ''VoidStoS
+       let g = mkName "g"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''VoidStoS
+           , datatypeContext = []
+           , datatypeVars    = [SigT (VarT g) (arrowKCompat starK starK)]
+           , datatypeVariant = Datatype
+           , datatypeCons    = []
            }
   )

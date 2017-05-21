@@ -67,6 +67,7 @@ module Language.Haskell.TH.Datatype
 
   -- * Backward compatible data definitions
   , dataDCompat
+  , arrowKCompat
 
   -- * Convenience functions
   , resolveTypeSynonyms
@@ -231,7 +232,10 @@ normalizeDec (DataInstD context name params cons _derives) =
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
 bndrParams :: [TyVarBndr] -> [Type]
-bndrParams = map (VarT . tvName)
+bndrParams = map $ \bndr ->
+  case bndr of
+    KindedTV t k -> SigT (VarT t) k
+    PlainTV  t   -> VarT t
 
 
 normalizeDec' ::
@@ -604,4 +608,11 @@ dataDCompat c n ts cs ds =
     (pure (map ConT ds))
 #else
 dataDCompat = dataD
+#endif
+
+arrowKCompat :: Kind -> Kind -> Kind
+#if MIN_VERSION_template_haskell(2,8,0)
+arrowKCompat x y = arrowK `appK` x `appK` y
+#else
+arrowKCompat = arrowK
 #endif
