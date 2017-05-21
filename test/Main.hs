@@ -1,4 +1,4 @@
-{-# Language PolyKinds, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, PolyKinds, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
 
 {-|
 Module      : Main
@@ -46,7 +46,11 @@ data Gadt2 :: * -> * -> * where
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 
+#if MIN_VERSION_template_haskell(2,9,0)
 data family DF1 (a :: k)
+#else
+data family DF1 a
+#endif
 data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)
