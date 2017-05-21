@@ -46,7 +46,7 @@ data Gadt2 :: * -> * -> * where
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 
-data family DF1 (a :: *)
+data family DF1 (a :: k)
 data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)

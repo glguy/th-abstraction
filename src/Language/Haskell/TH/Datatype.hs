@@ -84,6 +84,7 @@ import qualified Data.Map as Map
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
+import           Language.Haskell.TH.Lib (arrowK) -- needed for th-2.4
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
