@@ -171,24 +171,30 @@ reifyParent con ty parent =
     p info = con `elem` map constructorName (datatypeCons info)
 
 #if (!MIN_VERSION_template_haskell(2,10,0)) && MIN_VERSION_template_haskell(2,9,0)
+    kindPart (KindedTV _ k) = [k]
+    kindPart (PlainTV  _  ) = []
+
+    countKindVars = length . freeVariables . map kindPart
     -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
     -- type variables on the data constructor.
     repairInstance
       (FamilyD _ _ dvars _)
       (ForallT tvars _ _)
       (NewtypeInstD cx n ts con deriv) =
-        NewtypeInstD cx n (ts ++ extras) con deriv
+        NewtypeInstD cx n ts' con deriv
       where
-        missing = length dvars - length ts
-        extras  = map (VarT . tvName) (take missing tvars)
+        nparams = length dvars
+        kparams = countKindVars dvars
+        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
     repairInstance
       (FamilyD _ _ dvars _)
       (ForallT tvars _ _)
       (DataInstD cx n ts cons deriv) =
-        DataInstD cx n (ts ++ extras) cons deriv
+        DataInstD cx n ts' cons deriv
       where
-        missing = length dvars - length ts
-        extras  = map (VarT . tvName) (take missing tvars)
+        nparams = length dvars
+        kparams = countKindVars dvars
+        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
 #endif
     repairInstance _ _ x = x
 
