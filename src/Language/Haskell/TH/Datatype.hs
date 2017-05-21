@@ -160,10 +160,11 @@ reifyParent con ty parent =
        TyConI dec -> normalizeDec dec
        FamilyI dec instances ->
          do let instances1 = map (repairInstance dec ty) instances
-	    instances2 <- traverse normalizeDec instances1
+            instances2 <- traverse normalizeDec instances1
             case find p instances2 of
-              Nothing -> fail "PANIC: reifyParent lost the instance"
-              Just dec -> return dec
+              Just inst -> return inst
+              Nothing   -> fail "PANIC: reifyParent lost the instance"
+       _ -> fail "PANIC: reifyParent unexpected parent"
   where
     p info = con `elem` map constructorName (datatypeCons info)
 
