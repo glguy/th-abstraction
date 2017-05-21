@@ -48,8 +48,10 @@ data instance DF (Maybe a) = DFMaybe Int [a]
 
 #if MIN_VERSION_template_haskell(2,9,0)
 data family DF1 (a :: k)
-#else
+#elif MIN_VERSION_template_haskell(2,8,0)
 data family DF1 a
+#else
+data family DF1 (a :: *)
 #endif
 data instance DF1 b = DF1 b
 
