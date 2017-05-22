@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## 0.1.2.1  -- 2017-05-21
+
+* Add eta reduction fixes to GHC 7.6
+
 ## 0.1.2.0  -- 2017-05-21
 
 * Added `arrowKCompat`
