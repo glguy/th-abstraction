@@ -170,7 +170,7 @@ reifyParent con ty parent =
   where
     p info = con `elem` map constructorName (datatypeCons info)
 
-#if (!MIN_VERSION_template_haskell(2,10,0)) && MIN_VERSION_template_haskell(2,9,0)
+#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
     kindPart (KindedTV _ k) = [k]
     kindPart (PlainTV  _  ) = []
 
