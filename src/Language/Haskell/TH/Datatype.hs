@@ -68,11 +68,16 @@ module Language.Haskell.TH.Datatype
   -- * Backward compatible data definitions
   , dataDCompat
 
-  -- * Convenience functions
+  -- * Type simplification
   , resolveTypeSynonyms
+  , resolveInfixT
+
+  -- * Convenience functions
   , unifyTypes
   , tvName
   , datatypeType
+  , showFixity
+  , showFixityDirection
   ) where
 
 import           Data.Data (Typeable, Data)
@@ -80,6 +85,7 @@ import           Data.Foldable (foldMap, foldl')
 import           Data.List (union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe (fromMaybe)
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
@@ -283,36 +289,117 @@ resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
   let f :| xs = decomposeType t
 
-      notTypeSynCase = foldl AppT f <$> traverse resolveTypeSynonyms xs
+      notTypeSynCase = foldl AppT f <$> traverse resolveTypeSynonyms xs in
 
-  in case f of
-       ConT n ->
-         do info <- reify n
-            case info of
-              TyConI (TySynD _ synvars def) ->
-                let argNames    = map tvName synvars
-                    (args,rest) = splitAt (length argNames) xs
-                    subst       = Map.fromList (zip argNames args)
-                    t'          = foldl AppT (applySubstitution subst def) rest
-                in resolveTypeSynonyms t'
+  case f of
+    ConT n ->
+      do info <- reify n
+         case info of
+           TyConI (TySynD _ synvars def) ->
+             let argNames    = map tvName synvars
+                 (args,rest) = splitAt (length argNames) xs
+                 subst       = Map.fromList (zip argNames args)
+                 t'          = foldl AppT (applySubstitution subst def) rest
+             in resolveTypeSynonyms t'
 
-              _ -> notTypeSynCase
-       _ -> notTypeSynCase
+           _ -> notTypeSynCase
+    _ -> notTypeSynCase
 
 -- | Decompose a type into a list of it's outermost applications. This process
 -- forgets about infix application and explicit parentheses.
 --
+-- This operation should be used after all 'UInfixT' cases have been resolved
+-- by 'resolveFixities' if the argument is being user generated.
+--
 -- > t ~= foldl1 AppT (decomposeType t)
 decomposeType :: Type -> NonEmpty Type
-decomposeType = reverseNonEmpty . go
+decomposeType = go []
   where
-    go (AppT f x     ) = x <| go f
+    go args (AppT f x) = go (x:args) f
+    go args t          = t :| args
+
+-- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
+-- saves dependencies for supporting older GHCs
+data NonEmpty a = a :| [a]
+
+
+-- | Resolve any infix type application in a type using the fixities that
+-- are currently available. Starting in `template-haskell-2.11` types could
+-- contain unresolved infix applications.
+resolveInfixT :: Type -> Q Type
+
 #if MIN_VERSION_template_haskell(2,11,0)
-    go (InfixT  l f r) = ConT f :| [l,r]
-    go (UInfixT l f r) = ConT f :| [l,r]
-    go (ParensT t    ) = decomposeType t
+resolveInfixT (ForallT vs cx t) = forallT vs (traverse resolveInfixT cx) (resolveInfixT t)
+resolveInfixT (f `AppT` x)      = resolveInfixT f `appT` resolveInfixT x
+resolveInfixT (ParensT t)       = resolveInfixT t
+resolveInfixT (InfixT l o r)    = conT o `appT` resolveInfixT l `appT` resolveInfixT r
+resolveInfixT (SigT t k)        = SigT <$> resolveInfixT t <*> resolveInfixT k
+resolveInfixT t@UInfixT{}       = resolveInfixT =<< resolveInfixT1 (gatherUInfixT t)
+resolveInfixT t                 = pure t
+
+gatherUInfixT :: Type -> InfixList
+gatherUInfixT (UInfixT l o r) = ilAppend (gatherUInfixT l) o (gatherUInfixT r)
+gatherUInfixT t = ILNil t
+
+-- This can fail due to incompatible fixities
+resolveInfixT1 :: InfixList -> TypeQ
+resolveInfixT1 = go []
+  where
+    go :: [(Type,Name,Fixity)] -> InfixList -> TypeQ
+    go ts (ILNil u) = pure (foldl (\acc (l,o,_) -> ConT o `AppT` l `AppT` acc) u ts)
+    go ts (ILCons l o r) =
+      do ofx <- fromMaybe defaultFixity <$> reifyFixity o
+         let push = go ((l,o,ofx):ts) r
+         case ts of
+           (l1,o1,o1fx):ts' ->
+             case compareFixity o1fx ofx of
+               Just True  -> go ((ConT o1 `AppT` l1 `AppT` l, o, ofx):ts') r
+               Just False -> push
+               Nothing    -> fail (precedenceError o1 o1fx o ofx)
+           _ -> push
+
+    compareFixity :: Fixity -> Fixity -> Maybe Bool
+    compareFixity (Fixity n1 InfixL) (Fixity n2 InfixL) = Just (n1 >= n2)
+    compareFixity (Fixity n1 InfixR) (Fixity n2 InfixR) = Just (n1 >  n2)
+    compareFixity (Fixity n1 _     ) (Fixity n2 _     ) =
+      case compare n1 n2 of
+        GT -> Just True
+        LT -> Just False
+        EQ -> Nothing
+
+    precedenceError :: Name -> Fixity -> Name -> Fixity -> String
+    precedenceError o1 ofx1 o2 ofx2 =
+      "Precedence parsing error: cannot mix ‘" ++
+      nameBase o1 ++ "’ [" ++ showFixity ofx1 ++ "] and ‘" ++
+      nameBase o2 ++ "’ [" ++ showFixity ofx2 ++
+      "] in the same infix type expression"
+
+data InfixList = ILCons Type Name InfixList | ILNil Type
+
+ilAppend :: InfixList -> Name -> InfixList -> InfixList
+ilAppend (ILNil l)         o r = ILCons l o r
+ilAppend (ILCons l1 o1 r1) o r = ILCons l1 o1 (ilAppend r1 o r)
+
+#else
+-- older template-haskell packages don't have UInfixT
+resolveInfixT = pure
 #endif
-    go t               = t :| []
+
+
+-- | Render a 'Fixity' as it would appear in Haskell source.
+--
+-- Example: @infixl 5@
+showFixity :: Fixity -> String
+showFixity (Fixity n d) = showFixityDirection d ++ " " ++ show n
+
+
+-- | Render a 'FixityDirection' like it would appear in Haskell source.
+--
+-- Examples: @infixl@ @infixr@ @infix@
+showFixityDirection :: FixityDirection -> String
+showFixityDirection InfixL = "infixl"
+showFixityDirection InfixR = "infixr"
+showFixityDirection InfixN = "infix"
 
 
 -- | Extract the type variable name from a 'TyVarBndr' ignoring the
@@ -334,7 +421,6 @@ takeFieldTypes xs = [a | (_,_,a) <- xs]
 -- This code is careful to ensure that the order of the variables quantified
 -- is determined by their order of appearance in the type signature. (In
 -- contrast with being dependent upon the Ord instance for 'Name')
---
 quantifyType :: Type -> Type
 quantifyType t
   | null vs   = t
@@ -488,20 +574,6 @@ classPred =
 #else
   ClassP
 #endif
-
-------------------------------------------------------------------------
-
--- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
--- saves dependencies for supporting older GHCs
-
-data NonEmpty a = a :| [a]
-
-(<|) :: a -> NonEmpty a -> NonEmpty a
-x <| (y :| ys) = x :| (y : ys)
-
-reverseNonEmpty :: NonEmpty a -> NonEmpty a
-reverseNonEmpty (x :| xs) = y :| ys
-  where y:ys = reverse (x:xs)
 
 ------------------------------------------------------------------------
 
