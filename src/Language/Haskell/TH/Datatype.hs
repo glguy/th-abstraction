@@ -259,8 +259,7 @@ normalizeDec' ::
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name params cons variant =
-  do let vs = freeVariables params
-     cons' <- concat <$> traverse (normalizeCon name vs) cons
+  do cons' <- concat <$> traverse (normalizeCon name params) cons
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -274,10 +273,10 @@ normalizeDec' context name params cons variant =
 -- 'Dec'.
 normalizeCon ::
   Name   {- ^ Type constructor -} ->
-  [Name] {- ^ Type parameters  -} ->
+  [Type] {- ^ Type parameters  -} ->
   Con    {- ^ Constructor      -} ->
   Q [ConstructorInfo]
-normalizeCon typename vars = go [] []
+normalizeCon typename params = go [] []
   where
     go tyvars context c =
       case c of
@@ -299,12 +298,12 @@ normalizeCon typename vars = go [] []
           let fns = takeFieldNames xs in
           gadtCase ns innerType (takeFieldTypes xs) (RecordConstructor fns)
       where
-        gadtCase = normalizeGadtC typename vars tyvars context
+        gadtCase = normalizeGadtC typename params tyvars context
 
 
 normalizeGadtC ::
   Name               {- ^ Type constructor             -} ->
-  [Name]             {- ^ Type parameters              -} ->
+  [Type]             {- ^ Type parameters              -} ->
   [TyVarBndr]        {- ^ Constructor parameters       -} ->
   Cxt                {- ^ Constructor context          -} ->
   [Name]             {- ^ Constructor names            -} ->
@@ -312,12 +311,12 @@ normalizeGadtC ::
   [Type]             {- ^ Constructor field types      -} ->
   ConstructorVariant {- ^ Constructor variant          -} ->
   Q [ConstructorInfo]
-normalizeGadtC typename vars tyvars context names innerType fields variant =
+normalizeGadtC typename params tyvars context names innerType fields variant =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
 
-         let (substName, context1) = mergeArguments vars ts
+         let (substName, context1) = mergeArguments params ts
              subst   = VarT <$> substName
              tyvars' = [ tv | tv <- tyvars, Map.notMember (tvName tv) subst ]
 
@@ -328,14 +327,24 @@ normalizeGadtC typename vars tyvars context names innerType fields variant =
 
        _ -> fail "normalizeGadtC: Expected type constructor application"
 
-mergeArguments :: [Name] -> [Type] -> (Map Name Name, Cxt)
+mergeArguments ::
+  [Type] {- ^ outer parameters                    -} ->
+  [Type] {- ^ inner parameters (specializations ) -} ->
+  (Map Name Name, Cxt)
 mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
   where
-    aux (n,p) (subst, context) =
+    aux (SigT x _, y) sc = aux (x,y) sc -- learn about kinds??
+    aux (x, SigT y _) sc = aux (x,y) sc
+
+    aux (f `AppT` x, g `AppT` y) sc =
+      aux (x,y) (aux (f,g) sc)
+
+    aux (VarT n,p) (subst, context) =
       case p of
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
 
+    aux _ sc = sc
 #endif
 
 -- | Expand all of the type synonyms in a type.
