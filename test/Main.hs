@@ -1,4 +1,4 @@
-{-# Language KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, PolyKinds, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
 
 {-|
 Module      : Main
@@ -14,7 +14,6 @@ the versions of GHC supported by this package.
 -}
 module Main (main) where
 
-import Control.Monad
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
 
@@ -22,11 +21,11 @@ import Harness
 
 type Gadt1Int = Gadt1 Int
 
-data Gadt1 a where
+data Gadt1 (a :: *) where
   Gadtc1 :: Int   -> Gadt1Int
   Gadtc2 :: (a,a) -> Gadt1 a
 
-data Adt1 a b = Adtc1 (a,b) | Bool `Adtc2` Int
+data Adt1 (a :: *) (b :: *) = Adtc1 (a,b) | Bool `Adtc2` Int
 
 data Gadtrec1 a where
   Gadtrecc1, Gadtrecc2 :: { gadtrec1a :: a, gadtrec1b :: b } -> Gadtrec1 (a,b)
@@ -44,6 +43,20 @@ data Gadt2 :: * -> * -> * where
   Gadt2c2 :: Gadt2 [a] a
   Gadt2c3 :: Gadt2 [a] [a]
 
+data family DF (a :: *)
+data instance DF (Maybe a) = DFMaybe Int [a]
+
+#if MIN_VERSION_template_haskell(2,9,0)
+data family DF1 (a :: k)
+#elif MIN_VERSION_template_haskell(2,8,0)
+data family DF1 a
+#else
+data family DF1 (a :: *)
+#endif
+data instance DF1 b = DF1 b
+
+data VoidStoS (f :: * -> *)
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -51,10 +64,14 @@ main :: IO ()
 main =
   do adt1Test
      gadt1Test
+     gadt2Test
      gadtrec1Test
      equalTest
      showableTest
      recordTest
+     dataFamilyTest
+     ghc78bugTest
+     voidstosTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -150,7 +167,7 @@ equalTest =
          DatatypeInfo
            { datatypeName    = ''Equal
            , datatypeContext = []
-           , datatypeVars    = [a,b,c]
+           , datatypeVars    = [a, b, c]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
@@ -223,7 +240,7 @@ gadt2Test =
          DatatypeInfo
            { datatypeName    = ''Gadt2
            , datatypeContext = []
-           , datatypeVars    = [a,b]
+           , datatypeVars    = [a, b]
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ con { constructorName = 'Gadt2c1
@@ -235,5 +252,59 @@ gadt2Test =
                      , constructorContext =
                          [equalPred a (AppT ListT (VarT x))
                          ,equalPred b (AppT ListT (VarT x))] } ]
+           }
+  )
+
+dataFamilyTest :: IO ()
+dataFamilyTest =
+  $(do info <- reifyDatatype 'DFMaybe
+       let a = mkName "a"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''DF
+           , datatypeContext = []
+           , datatypeVars    = [AppT (ConT ''Maybe) (VarT a)]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'DFMaybe
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [ConT ''Int, ListT `AppT` VarT a]
+                   , constructorVariant = NormalConstructor } ]
+           }
+  )
+
+ghc78bugTest :: IO ()
+ghc78bugTest =
+  $(do info <- reifyDatatype 'DF1
+       let c = mkName "c"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''DF1
+           , datatypeContext = []
+           , datatypeVars    = [VarT c]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'DF1
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [VarT c]
+                   , constructorVariant = NormalConstructor } ]
+           }
+  )
+
+voidstosTest :: IO ()
+voidstosTest =
+  $(do info <- reifyDatatype ''VoidStoS
+       let g = mkName "g"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''VoidStoS
+           , datatypeContext = []
+           , datatypeVars    = [VarT g]
+           , datatypeVariant = Datatype
+           , datatypeCons    = []
            }
   )

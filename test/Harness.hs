@@ -22,6 +22,10 @@ import           Language.Haskell.TH.Datatype
 validate :: DatatypeInfo -> DatatypeInfo -> ExpQ
 validate x y = either fail (\_ -> [| return () |]) (equateDI x y)
 
+stripOuterSigT :: Type -> Type
+stripOuterSigT (SigT t _) = t
+stripOuterSigT t          = t
+
 -- | If the arguments are equal up to renaming return @'Right' ()@,
 -- otherwise return a string exlaining the mismatch.
 equateDI :: DatatypeInfo -> DatatypeInfo -> Either String ()
@@ -39,7 +43,7 @@ equateDI dat1 dat2 =
        (applySubstitution sub (datatypeContext dat2))
 
      check "datatypeVars" id
-       (datatypeVars dat1)
+       (map stripOuterSigT (datatypeVars dat1))
        (applySubstitution sub (datatypeVars dat2))
 
      zipWithM_ equateCI

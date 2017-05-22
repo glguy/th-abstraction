@@ -67,6 +67,7 @@ module Language.Haskell.TH.Datatype
 
   -- * Backward compatible data definitions
   , dataDCompat
+  , arrowKCompat
 
   -- * Type simplification
   , resolveTypeSynonyms
@@ -82,13 +83,14 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.List (union, (\\))
+import           Data.List (find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe (fromMaybe)
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
+import           Language.Haskell.TH.Lib (arrowK) -- needed for th-2.4
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
@@ -151,7 +153,56 @@ reifyDatatype n = normalizeInfo =<< reify n
 -- Fail in 'Q' otherwise.
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
+# if MIN_VERSION_template_haskell(2,11,0)
+normalizeInfo (DataConI name ty parent) = reifyParent name ty parent
+# else
+normalizeInfo (DataConI name ty parent _) = reifyParent name ty parent
+# endif
 normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
+
+
+reifyParent :: Name -> Type -> Name -> Q DatatypeInfo
+reifyParent con ty parent =
+  do info <- reify parent
+     case info of
+       TyConI dec -> normalizeDec dec
+       FamilyI dec instances ->
+         do let instances1 = map (repairInstance dec ty) instances
+            instances2 <- traverse normalizeDec instances1
+            case find p instances2 of
+              Just inst -> return inst
+              Nothing   -> fail "PANIC: reifyParent lost the instance"
+       _ -> fail "PANIC: reifyParent unexpected parent"
+  where
+    p info = con `elem` map constructorName (datatypeCons info)
+
+#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
+    kindPart (KindedTV _ k) = [k]
+    kindPart (PlainTV  _  ) = []
+
+    countKindVars = length . freeVariables . map kindPart
+    -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
+    -- type variables on the data constructor.
+    repairInstance
+      (FamilyD _ _ dvars _)
+      (ForallT tvars _ _)
+      (NewtypeInstD cx n ts con deriv) =
+        NewtypeInstD cx n ts' con deriv
+      where
+        nparams = length dvars
+        kparams = countKindVars dvars
+        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+    repairInstance
+      (FamilyD _ _ dvars _)
+      (ForallT tvars _ _)
+      (DataInstD cx n ts cons deriv) =
+        DataInstD cx n ts' cons deriv
+      where
+        nparams = length dvars
+        kparams = countKindVars dvars
+        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+#endif
+    repairInstance _ _ x = x
 
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
@@ -194,7 +245,10 @@ normalizeDec (DataInstD context name params cons _derives) =
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
 
 bndrParams :: [TyVarBndr] -> [Type]
-bndrParams = map (VarT . tvName)
+bndrParams = map $ \bndr ->
+  case bndr of
+    KindedTV t k -> SigT (VarT t) k
+    PlainTV  t   -> VarT t
 
 
 normalizeDec' ::
@@ -633,4 +687,11 @@ dataDCompat c n ts cs ds =
     (pure (map ConT ds))
 #else
 dataDCompat = dataD
+#endif
+
+arrowKCompat :: Kind -> Kind -> Kind
+#if MIN_VERSION_template_haskell(2,8,0)
+arrowKCompat x y = arrowK `appK` x `appK` y
+#else
+arrowKCompat = arrowK
 #endif
