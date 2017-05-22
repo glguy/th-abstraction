@@ -57,6 +57,15 @@ data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)
 
+#if MIN_VERSION_template_haskell(2,9,0)
+data family Poly (a :: k)
+#elif MIN_VERSION_template_haskell(2,8,0)
+data family Poly a
+#else
+data family Poly (a :: *)
+#endif
+data instance Poly a = MkPoly
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -306,5 +315,25 @@ voidstosTest =
            , datatypeVars    = [VarT g]
            , datatypeVariant = Datatype
            , datatypeCons    = []
+           }
+  )
+
+polyTest :: IO ()
+polyTest =
+  $(do info <- reifyDatatype 'MkPoly
+       let a = mkName "a"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Poly
+           , datatypeContext = []
+           , datatypeVars    = [VarT a]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'MkPoly
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = []
+                   , constructorVariant = NormalConstructor } ]
            }
   )

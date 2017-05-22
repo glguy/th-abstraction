@@ -167,7 +167,7 @@ reifyParent con ty parent =
      case info of
        TyConI dec -> normalizeDec dec
        FamilyI dec instances ->
-         do let instances1 = map (repairInstance dec ty) instances
+         do instances1 <- traverse (repairInstance dec ty) instances
             instances2 <- traverse normalizeDec instances1
             case find p instances2 of
               Just inst -> return inst
@@ -177,33 +177,67 @@ reifyParent con ty parent =
     p info = con `elem` map constructorName (datatypeCons info)
 
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
-    kindPart (KindedTV _ k) = [k]
-    kindPart (PlainTV  _  ) = []
+    kindPart (KindedTV _ k) = k
+    kindPart (PlainTV  _  ) = starK
 
-    countKindVars = length . freeVariables . map kindPart
-    -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
-    -- type variables on the data constructor.
+    -- Compute the types used in the return type of a data constructor's type signature
+    returnTypePats :: Type -> Q [Type]
+    returnTypePats conTy  =  tail      -- Take the types to which the datatype constructor is applied
+                          .  unapplyTy -- Decompose it into a list of types
+                          .  last      -- Take the return type
+                          .  uncurryTy -- Split the constructor's type by arrows
+                         <$> resolveTypeSynonyms conTy
+
+    -- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
+    stealKindForType :: TyVarBndr -> Type -> Type
+    stealKindForType tvb t@VarT{} = SigT t (kindPart tvb)
+    stealKindForType _   t        = t
+
+    -- Split a type signature by the arrows on its spine. For example, this:
+    --
+    --   (a -> b) -> Char -> ()
+    --
+    -- would become this:
+    --
+    --   [a -> b, Char, ()]
+    uncurryTy :: Type -> [Type]
+    uncurryTy (AppT (AppT ArrowT t1) t2) = t1:uncurryTy t2
+    uncurryTy (SigT t _)                 = uncurryTy t
+    uncurryTy (ForallT _ _ t)            = uncurryTy t
+    uncurryTy t                          = [t]
+
+    -- Split an applied type into its individual components. For example, this:
+    --
+    --   Either Int Char
+    --
+    -- would split to this:
+    --
+    --   [Either, Int, Char]
+    unapplyTy :: Type -> [Type]
+    unapplyTy = reverse . go
+      where
+        go :: Type -> [Type]
+        go (AppT t1 t2)    = t2:go t1
+        go (SigT t _)      = go t
+        go (ForallT _ _ t) = go t
+        go t               = [t]
+
+    -- GHC 7.8.4 will eta-reduce data instances. We can reconstruct the missing
+    -- type variables using the type signature of the data constructor.
     repairInstance
       (FamilyD _ _ dvars _)
-      (ForallT tvars _ _)
-      (NewtypeInstD cx n ts con deriv) =
-        NewtypeInstD cx n ts' con deriv
-      where
-        nparams = length dvars
-        kparams = countKindVars dvars
-        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+      (ForallT _ _ conTy)
+      (NewtypeInstD cx n _ con deriv) = do
+        ts <- returnTypePats conTy
+        return $ NewtypeInstD cx n ts con deriv
     repairInstance
       (FamilyD _ _ dvars _)
-      (ForallT tvars _ _)
-      (DataInstD cx n ts cons deriv) =
-        DataInstD cx n ts' cons deriv
-      where
-        nparams = length dvars
-        kparams = countKindVars dvars
-        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+      (ForallT _ _ conTy)
+      (DataInstD cx n _ cons deriv) = do
+        ts <- returnTypePats conTy
+        return $ DataInstD cx n ts cons deriv
 #endif
-    repairInstance _ _ x = x
-
+    repairInstance _ _ x = return x
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
