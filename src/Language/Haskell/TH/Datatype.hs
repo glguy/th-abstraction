@@ -1,7 +1,7 @@
 {-# Language CPP, DeriveDataTypeable #-}
 
 #if MIN_VERSION_base(4,4,0)
-#define HAS_GENERIC
+#define HAS_GENERICS
 {-# Language DeriveGeneric #-}
 #endif
 
@@ -95,10 +95,13 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import           Control.Monad (foldM)
-import           GHC.Generics (Generic)
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype.Internal
 import           Language.Haskell.TH.Lib (arrowK, starK) -- needed for th-2.4
+
+#ifdef HAS_GENERICS
+import           GHC.Generics (Generic)
+#endif
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
@@ -119,7 +122,7 @@ data DatatypeInfo = DatatypeInfo
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
   deriving (Show, Eq, Typeable, Data
-#ifdef HAS_GENERIC
+#ifdef HAS_GENERICS
            ,Generic
 #endif
            )
@@ -131,7 +134,7 @@ data DatatypeVariant
   | DataInstance    -- ^ Type declared with @data instance@
   | NewtypeInstance -- ^ Type declared with @newtype instance@
   deriving (Show, Read, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERIC
+#ifdef HAS_GENERICS
            ,Generic
 #endif
            )
@@ -146,7 +149,7 @@ data ConstructorInfo = ConstructorInfo
   , constructorVariant :: ConstructorVariant -- ^ Extra information
   }
   deriving (Show, Eq, Typeable, Data
-#ifdef HAS_GENERIC
+#ifdef HAS_GENERICS
            ,Generic
 #endif
            )
@@ -158,7 +161,7 @@ data ConstructorVariant
                              --   declared infix
   | RecordConstructor [Name] -- ^ Constructor with field names
   deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERIC
+#ifdef HAS_GENERICS
            ,Generic
 #endif
            )
