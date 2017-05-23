@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next
+## 0.1.3.0
 
 * Added `resolveInfixT` which uses reified fixity information to resolve `UInfixT`
 
