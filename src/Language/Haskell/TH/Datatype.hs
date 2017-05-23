@@ -1,4 +1,9 @@
-{-# Language CPP, DeriveGeneric, DeriveDataTypeable #-}
+{-# Language CPP, DeriveDataTypeable #-}
+
+#if MIN_VERSION_base(4,4,0)
+#define HAS_GENERIC
+{-# Language DeriveGeneric #-}
+#endif
 
 {-|
 Module      : Language.Haskell.TH.Datatype
@@ -105,7 +110,11 @@ data DatatypeInfo = DatatypeInfo
   , datatypeVariant :: DatatypeVariant   -- ^ Extra information
   , datatypeCons    :: [ConstructorInfo] -- ^ Normalize constructor information
   }
-  deriving (Show, Eq, Typeable, Data, Generic)
+  deriving (Show, Eq, Typeable, Data
+#ifdef HAS_GENERIC
+           ,Generic
+#endif
+           )
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
@@ -113,7 +122,11 @@ data DatatypeVariant
   | Newtype  -- ^ Type declared with @newtype@
   | DataInstance -- ^ Type declared with @data instance@
   | NewtypeInstance -- ^ Type declared with @newtype instance@
-  deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
+  deriving (Show, Read, Eq, Ord, Typeable, Data
+#ifdef HAS_GENERIC
+           ,Generic
+#endif
+           )
 
 -- | Normalized information about constructors associated with newtypes and
 -- data types.
@@ -124,13 +137,21 @@ data ConstructorInfo = ConstructorInfo
   , constructorFields  :: [Type]             -- ^ Constructor fields
   , constructorVariant :: ConstructorVariant -- ^ Extra information
   }
-  deriving (Show, Eq, Typeable, Data, Generic)
+  deriving (Show, Eq, Typeable, Data
+#ifdef HAS_GENERIC
+           ,Generic
+#endif
+           )
 
 -- | Possible variants of data constructors.
 data ConstructorVariant
   = NormalConstructor        -- ^ Constructor without field names
   | RecordConstructor [Name] -- ^ Constructor with field names
-  deriving (Show, Eq, Ord, Typeable, Data, Generic)
+  deriving (Show, Eq, Ord, Typeable, Data
+#ifdef HAS_GENERIC
+           ,Generic
+#endif
+           )
 
 
 -- | Construct a Type using the datatype's type constructor and type
