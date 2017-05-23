@@ -134,10 +134,11 @@ data ConstructorVariant
 
 
 -- | Construct a Type using the datatype's type constructor and type
--- parameters.
+-- parameters. Kind signatures are removed.
 datatypeType :: DatatypeInfo -> Type
 datatypeType di
   = foldl AppT (ConT (datatypeName di))
+  $ map stripSigT
   $ datatypeVars di
 
 
@@ -249,6 +250,12 @@ bndrParams = map $ \bndr ->
   case bndr of
     KindedTV t k -> SigT (VarT t) k
     PlainTV  t   -> VarT t
+
+
+-- | Remove the outermost 'SigT'.
+stripSigT :: Type -> Type
+stripSigT (SigT t _) = t
+stripSigT t          = t
 
 
 normalizeDec' ::
