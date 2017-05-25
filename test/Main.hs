@@ -57,6 +57,8 @@ data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)
 
+data IsInt a = a ~ Int => MkIsInt
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -72,6 +74,7 @@ main =
      dataFamilyTest
      ghc78bugTest
      voidstosTest
+     explicitEqualityTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -306,5 +309,25 @@ voidstosTest =
            , datatypeVars    = [VarT g]
            , datatypeVariant = Datatype
            , datatypeCons    = []
+           }
+  )
+
+explicitEqualityTest :: IO ()
+explicitEqualityTest =
+  $(do info <- reifyDatatype ''IsInt
+       let g = mkName "g"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''IsInt
+           , datatypeContext = []
+           , datatypeVars    = [VarT g]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'MkIsInt
+                   , constructorVars    = []
+                   , constructorContext = [EqualityT `AppT` VarT g `AppT` ConT ''Int]
+                   , constructorFields  = []
+                   , constructorVariant = NormalConstructor } ]
            }
   )
