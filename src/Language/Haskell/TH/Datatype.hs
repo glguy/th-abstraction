@@ -1,4 +1,4 @@
-{-# Language CPP, DeriveGeneric, DeriveDataTypeable #-}
+{-# Language CPP, TemplateHaskell, DeriveGeneric, DeriveDataTypeable #-}
 
 {-|
 Module      : Language.Haskell.TH.Datatype
@@ -64,6 +64,8 @@ module Language.Haskell.TH.Datatype
   -- * 'Pred' functions
   , equalPred
   , classPred
+  , asEqualPred
+  , asClassPred
 
   -- * Backward compatible data definitions
   , dataDCompat
@@ -643,6 +645,31 @@ classPred =
   foldl AppT . ConT
 #else
   ClassP
+#endif
+
+
+-- | Match a 'Pred' representing an equality constraint. Returns
+-- arguments to the equality constraint if successful.
+asEqualPred :: Pred -> Maybe (Type,Type)
+#if MIN_VERSION_template_haskell(2,10,0)
+asEqualPred (EqualityT `AppT` x `AppT` y)               = Just (x,y)
+asEqualPred (ConT eq   `AppT` x `AppT` y) | eq == ''(~) = Just (x,y)
+#else
+asEqualPred (EqualP            x        y)              = Just (x,y)
+#endif
+asEqualPred _                                           = Nothing
+
+-- | Match a 'Pred' representing a class constraint.
+-- Returns the classname and parameters if successful.
+asClassPred :: Pred -> Maybe (Name, [Type])
+#if MIN_VERSION_template_haskell(2,10,0)
+asClassPred t =
+  case decomposeType t of
+    ConT f :| xs | f /= ''(~) -> Just (f,xs)
+    _                         -> Nothing
+#else
+asClassPred (ClassP f xs) = Just (f,xs)
+asClassPred _             = Nothing
 #endif
 
 ------------------------------------------------------------------------

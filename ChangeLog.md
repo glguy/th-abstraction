@@ -3,6 +3,7 @@
 ## 0.1.3.0
 
 * Added `resolveInfixT` which uses reified fixity information to resolve `UInfixT`
+* Added `asEqualPred` and `asClassPred`
 
 ## 0.1.2.1  -- 2017-05-21
 
