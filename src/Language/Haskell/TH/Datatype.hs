@@ -1,4 +1,9 @@
-{-# Language CPP, TemplateHaskell, DeriveGeneric, DeriveDataTypeable #-}
+{-# Language CPP, DeriveGeneric, DeriveDataTypeable #-}
+#if __GLASGOW_HASKELL__ >= 801
+{-# Language TemplateHaskellQuotes #-}
+#else
+{-# Language TemplateHaskell #-}
+#endif
 
 {-|
 Module      : Language.Haskell.TH.Datatype
