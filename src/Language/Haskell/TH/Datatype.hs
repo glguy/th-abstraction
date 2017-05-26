@@ -1,9 +1,4 @@
 {-# Language CPP, DeriveGeneric, DeriveDataTypeable #-}
-#if __GLASGOW_HASKELL__ >= 801
-{-# Language TemplateHaskellQuotes #-}
-#else
-{-# Language TemplateHaskell #-}
-#endif
 
 {-|
 Module      : Language.Haskell.TH.Datatype
@@ -97,6 +92,7 @@ import           Data.Maybe (fromMaybe)
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
+import           Language.Haskell.TH.Datatype.Internal
 import           Language.Haskell.TH.Lib (arrowK) -- needed for th-2.4
 
 #if !MIN_VERSION_base(4,8,0)
@@ -657,12 +653,12 @@ classPred =
 -- arguments to the equality constraint if successful.
 asEqualPred :: Pred -> Maybe (Type,Type)
 #if MIN_VERSION_template_haskell(2,10,0)
-asEqualPred (EqualityT `AppT` x `AppT` y)               = Just (x,y)
-asEqualPred (ConT eq   `AppT` x `AppT` y) | eq == ''(~) = Just (x,y)
+asEqualPred (EqualityT `AppT` x `AppT` y)                    = Just (x,y)
+asEqualPred (ConT eq   `AppT` x `AppT` y) | eq == eqTypeName = Just (x,y)
 #else
-asEqualPred (EqualP            x        y)              = Just (x,y)
+asEqualPred (EqualP            x        y)                   = Just (x,y)
 #endif
-asEqualPred _                                           = Nothing
+asEqualPred _                                                = Nothing
 
 -- | Match a 'Pred' representing a class constraint.
 -- Returns the classname and parameters if successful.
@@ -670,8 +666,8 @@ asClassPred :: Pred -> Maybe (Name, [Type])
 #if MIN_VERSION_template_haskell(2,10,0)
 asClassPred t =
   case decomposeType t of
-    ConT f :| xs | f /= ''(~) -> Just (f,xs)
-    _                         -> Nothing
+    ConT f :| xs | f /= eqTypeName -> Just (f,xs)
+    _                              -> Nothing
 #else
 asClassPred (ClassP f xs) = Just (f,xs)
 asClassPred _             = Nothing
