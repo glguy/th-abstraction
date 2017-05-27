@@ -1,9 +1,10 @@
 # Revision history for th-abstraction
 
-## 0.1.3.0
+## 0.1.3.0 -- 2016-05-27
 
 * Added `resolveInfixT` which uses reified fixity information to resolve `UInfixT`
 * Added `asEqualPred` and `asClassPred`
+* Fixed data-instance GADTs
 
 ## 0.1.2.1  -- 2017-05-21
 
