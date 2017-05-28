@@ -93,7 +93,7 @@ import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype.Internal
-import           Language.Haskell.TH.Lib (arrowK) -- needed for th-2.4
+import           Language.Haskell.TH.Lib (arrowK, starK) -- needed for th-2.4
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
@@ -171,14 +171,47 @@ reifyParent con ty parent =
      case info of
        TyConI dec -> normalizeDec dec
        FamilyI dec instances ->
-         do let instances1 = map (repairInstance dec ty) instances
-            instances2 <- traverse normalizeDec instances1
-            case find p instances2 of
+         do let instances1 = map (repairEtaReduction dec ty) instances
+                instances2 = map (repairFamKindSigs dec) instances1
+            instances3 <- traverse normalizeDec instances2
+            case find p instances3 of
               Just inst -> return inst
               Nothing   -> fail "PANIC: reifyParent lost the instance"
        _ -> fail "PANIC: reifyParent unexpected parent"
   where
     p info = con `elem` map constructorName (datatypeCons info)
+
+    -- GHC leaves off the kind signatures on the type patterns of data family
+    -- instances where a kind signature isn't specified explicitly.
+    -- Here, we can use the parent data family's type variable binders to
+    -- reconstruct the kind signatures if they are missing.
+    repairFamKindSigs :: Dec -> Dec -> Dec
+    repairFamKindSigs famD instD
+#if MIN_VERSION_template_haskell(2,11,0)
+      | DataFamilyD _ dvars _ <- famD
+      , NewtypeInstD cx n ts k con deriv <- instD
+      = NewtypeInstD cx n (repairVarKindsWith dvars ts) k con deriv
+      | DataFamilyD _ dvars _ <- famD
+      , DataInstD cx n ts k con deriv <- instD
+      = DataInstD cx n (repairVarKindsWith dvars ts) k con deriv
+#else
+      | FamilyD _ _ dvars _ <- famD
+      , NewtypeInstD cx n ts con deriv <- instD
+      = NewtypeInstD cx n (repairVarKindsWith dvars ts) con deriv
+      | FamilyD _ _ dvars _ <- famD
+      , DataInstD cx n ts con deriv <- instD
+      = DataInstD cx n (repairVarKindsWith dvars ts) con deriv
+#endif
+      | otherwise = instD
+      where
+        repairVarKindsWith :: [TyVarBndr] -> [Type] -> [Type]
+        repairVarKindsWith = zipWith stealKindForType
+
+        -- If a VarT is missing an explicit kind signature,
+        -- steal it from a TyVarBndr.
+        stealKindForType :: TyVarBndr -> Type -> Type
+        stealKindForType tvb t@VarT{} = SigT t (tvbKind tvb)
+        stealKindForType _   t        = t
 
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
     kindPart (KindedTV _ k) = [k]
@@ -187,7 +220,7 @@ reifyParent con ty parent =
     countKindVars = length . freeVariables . map kindPart
     -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
     -- type variables on the data constructor.
-    repairInstance
+    repairEtaReduction
       (FamilyD _ _ dvars _)
       (ForallT tvars _ _)
       (NewtypeInstD cx n ts con deriv) =
@@ -196,7 +229,7 @@ reifyParent con ty parent =
         nparams = length dvars
         kparams = countKindVars dvars
         ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
-    repairInstance
+    repairEtaReduction
       (FamilyD _ _ dvars _)
       (ForallT tvars _ _)
       (DataInstD cx n ts cons deriv) =
@@ -206,7 +239,7 @@ reifyParent con ty parent =
         kparams = countKindVars dvars
         ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
 #endif
-    repairInstance _ _ x = x
+    repairEtaReduction _ _ x = x
 
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
@@ -214,36 +247,36 @@ reifyParent con ty parent =
 normalizeDec :: Dec -> Q DatatypeInfo
 #if MIN_VERSION_template_haskell(2,12,0)
 normalizeDec (NewtypeD context name tyvars _kind con _derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
 normalizeDec (DataD context name tyvars _kind cons _derives) =
-  normalizeDec' context name (bndrParams tyvars) cons Datatype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params _kind con _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params _kind cons _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params cons DataInstance
 #elif MIN_VERSION_template_haskell(2,11,0)
 normalizeDec (NewtypeD context name tyvars _kind con _derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
 normalizeDec (DataD context name tyvars _kind cons _derives) =
-  normalizeDec' context name (bndrParams tyvars) cons Datatype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params _kind con _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params _kind cons _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params cons DataInstance
 #else
 normalizeDec (NewtypeD context name tyvars con _derives) =
-  normalizeDec' context name (bndrParams tyvars) [con] Newtype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
 normalizeDec (DataD context name tyvars cons _derives) =
-  normalizeDec' context name (bndrParams tyvars) cons Datatype
+  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
 normalizeDec (NewtypeInstD context name params con _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params [con] NewtypeInstance
 normalizeDec (DataInstD context name params cons _derives) =
-  repair13618 =<<
+  repair13618 . giveTypesStarKinds =<<
   normalizeDec' context name params cons DataInstance
 #endif
 normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
@@ -254,6 +287,10 @@ bndrParams = map $ \bndr ->
     KindedTV t k -> SigT (VarT t) k
     PlainTV  t   -> VarT t
 
+-- | Extract the kind from a 'TyVarBndr'. Assumes 'PlainTV' has kind @*@.
+tvbKind :: TyVarBndr -> Kind
+tvbKind (PlainTV  _)   = starK
+tvbKind (KindedTV _ k) = k
 
 -- | Remove the outermost 'SigT'.
 stripSigT :: Type -> Type
@@ -286,7 +323,7 @@ normalizeCon ::
   [Type] {- ^ Type parameters  -} ->
   Con    {- ^ Constructor      -} ->
   Q [ConstructorInfo]
-normalizeCon typename params = go [] []
+normalizeCon typename params = fmap (map giveTyVarBndrsStarKinds) . go [] []
   where
     go tyvars context c =
       case c of
@@ -674,6 +711,30 @@ asClassPred _             = Nothing
 #endif
 
 ------------------------------------------------------------------------
+
+-- On old versions of GHC, reify would not give you kind signatures for
+-- GADT type variables of kind *. To work around this, we insert the kinds
+-- manually on any types without a signature.
+
+giveTypesStarKinds :: DatatypeInfo -> DatatypeInfo
+giveTypesStarKinds info =
+  info { datatypeVars = annotateVars (datatypeVars info) }
+  where
+    annotateVars :: [Type] -> [Type]
+    annotateVars = map $ \t ->
+      case t of
+        VarT n -> SigT (VarT n) starK
+        _      -> t
+
+giveTyVarBndrsStarKinds :: ConstructorInfo -> ConstructorInfo
+giveTyVarBndrsStarKinds info =
+  info { constructorVars = annotateVars (constructorVars info) }
+  where
+    annotateVars :: [TyVarBndr] -> [TyVarBndr]
+    annotateVars = map $ \tvb ->
+      case tvb of
+        PlainTV n -> KindedTV n starK
+        _         -> tvb
 
 -- | Prior to GHC 8.2.1, reify was broken for data instances and newtype
 -- instances. This code attempts to detect the problem and repair it if
