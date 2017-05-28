@@ -57,6 +57,23 @@ data instance DF1 b = DF1 b
 
 data VoidStoS (f :: * -> *)
 
+#if MIN_VERSION_template_haskell(2,9,0)
+data family Poly (a :: k)
+#elif MIN_VERSION_template_haskell(2,8,0)
+data family Poly a
+#else
+data family Poly (a :: *)
+#endif
+data instance Poly a = MkPoly
+
+data family GadtFam (a :: *) (b :: *)
+data instance GadtFam c d where
+  MkGadtFam1 :: x   -> y        -> GadtFam y x
+  MkGadtFam2 :: e   -> f        -> GadtFam [e] f
+  MkGadtFam3 :: Int -> Int      -> GadtFam Int Int
+  MkGadtFam4 :: (Int ~ z) => z  -> GadtFam z z
+  MkGadtFam5 :: (q ~ Char) => q -> GadtFam Bool Bool
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -308,3 +325,75 @@ voidstosTest =
            , datatypeCons    = []
            }
   )
+
+polyTest :: IO ()
+polyTest =
+  $(do info <- reifyDatatype 'MkPoly
+       let a = mkName "a"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''Poly
+           , datatypeContext = []
+           , datatypeVars    = [VarT a]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'MkPoly
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = []
+                   , constructorVariant = NormalConstructor } ]
+           }
+  )
+
+gadtFamTest :: IO ()
+gadtFamTest =
+  $(do info <- reifyDatatype 'MkGadtFam1
+       let names@[c,d,e,q]   = map mkName ["c","d","e","q"]
+           [cTy,dTy,eTy,qTy] = map VarT names
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''GadtFam
+           , datatypeContext = []
+           , datatypeVars    = [cTy,dTy]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName    = 'MkGadtFam1
+                   , constructorVars    = []
+                   , constructorContext = []
+                   , constructorFields  = [dTy,cTy]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName    = 'MkGadtFam2
+                   , constructorVars    = [PlainTV e]
+                   , constructorContext = [equalPred cTy (AppT ListT eTy)]
+                   , constructorFields  = [eTy,dTy]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName    = 'MkGadtFam3
+                   , constructorVars    = []
+                   , constructorContext = [ equalPred cTy (ConT ''Int)
+                                          , equalPred dTy (ConT ''Int)
+                                          ]
+                   , constructorFields  = [ConT ''Int, ConT ''Int]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName    = 'MkGadtFam4
+                   , constructorVars    = []
+                   , constructorContext = [ equalPred cTy dTy
+                                          , equalPred (ConT ''Int) dTy
+                                          ]
+                   , constructorFields  = [dTy]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName    = 'MkGadtFam5
+                   , constructorVars    = [PlainTV q]
+                   , constructorContext = [ equalPred cTy (ConT ''Bool)
+                                          , equalPred dTy (ConT ''Bool)
+                                          , equalPred qTy (ConT ''Char)
+                                          ]
+                   , constructorFields  = [qTy]
+                   , constructorVariant = NormalConstructor } ]
+           }
+   )
