@@ -38,7 +38,7 @@ equateDI dat1 dat2 =
      let sub = Map.fromList (zip (freeVariables (datatypeVars dat2))
                                  (map VarT (freeVariables (datatypeVars dat1))))
 
-     check "datatypeContext" id
+     zipWithM_ (equateCxt "datatypeContext")
        (datatypeContext dat1)
        (applySubstitution sub (datatypeContext dat2))
 
@@ -50,6 +50,11 @@ equateDI dat1 dat2 =
        (datatypeCons dat1)
        (applySubstitution sub (datatypeCons dat2))
 
+equateCxt :: String -> Pred -> Pred -> Either String ()
+equateCxt lbl pred1 pred2 =
+  do check (lbl ++ " class")    asClassPred pred1 pred2
+     check (lbl ++ " equality") asEqualPred pred1 pred2
+
 -- | If the arguments are equal up to renaming return @'Right' ()@,
 -- otherwise return a string exlaining the mismatch.
 equateCI :: ConstructorInfo -> ConstructorInfo -> Either String ()
@@ -60,7 +65,7 @@ equateCI con1 con2 =
      let sub = Map.fromList (zip (map tvName (constructorVars con2))
                                  (map VarT (map tvName (constructorVars con1))))
 
-     check "constructorContext" id
+     zipWithM_ (equateCxt "constructorContext")
         (constructorContext con1)
         (applySubstitution sub (constructorContext con2))
 
