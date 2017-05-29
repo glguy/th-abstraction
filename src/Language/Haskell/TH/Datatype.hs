@@ -321,7 +321,7 @@ normalizeDec' ::
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name params cons variant =
-  do cons' <- concat <$> traverse (normalizeCon name params) cons
+  do cons' <- concat <$> traverse (normalizeCon name params variant) cons
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -337,9 +337,10 @@ normalizeDec' context name params cons variant =
 normalizeCon ::
   Name            {- ^ Type constructor  -} ->
   [Type]          {- ^ Type parameters   -} ->
+  DatatypeVariant {- ^ Extra information -} ->
   Con             {- ^ Constructor       -} ->
   Q [ConstructorInfo]
-normalizeCon typename params = fmap (map giveTyVarBndrsStarKinds) . dispatch
+normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
   where
     -- A GADT constructor is declared infix when:
     --
