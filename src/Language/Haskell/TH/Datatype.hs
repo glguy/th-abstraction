@@ -330,16 +330,65 @@ normalizeCon ::
   Q [ConstructorInfo]
 normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
   where
+    -- A GADT constructor is declared infix when:
+    --
+    -- 1. Its name uses operator syntax (e.g., (:*:))
+    -- 2. It has exactly two fields
+    -- 3. It has a programmer-supplied fixity declaration
+    checkGadtFixity :: [Type] -> Name -> Q ConstructorVariant
+    checkGadtFixity ts n = do
+#if MIN_VERSION_template_haskell(2,11,0)
+      mbFi <- reifyFixity n
+      let userSuppliedFixity = isJust mbFi
+#else
+      -- On old GHCs, there is a bug where infix GADT constructors will
+      -- mistakenly be marked as (ForallC (NormalC ...)) instead of
+      -- (ForallC (InfixC ...)). This is especially annoying since on these
+      -- versions of GHC, Template Haskell doesn't grant the ability to query
+      -- whether a constructor was given a user-supplied fixity declaration.
+      -- Rather, you can only check the fixity that GHC ultimately decides on
+      -- for a constructor, regardless of whether it was a default fixity or
+      -- it was user-supplied.
+      --
+      -- We can approximate whether a fixity was user-supplied by checking if
+      -- it is not equal to (Fixity 9 InfixL), as GHC always uses that as its
+      -- default fixity. Unfortunately, there is no way to distinguish between
+      -- a user-suppled (Fixity 9 InfixL) and the default (Fixity 9 InfixL),
+      -- so we cannot properly handle that case.
+      DataConI _ _ _ fi <- reify n
+      let userSuppliedFixity = fi /= Fixity 9 InfixL
+#endif
+      return $ if isInfixDataCon (nameBase n)
+                  && length ts == 2
+                  && userSuppliedFixity
+               then InfixConstructor
+               else NormalConstructor
+
+    -- Checks if a String names a valid Haskell infix data
+    -- constructor (i.e., does it begin with a colon?).
+    isInfixDataCon :: String -> Bool
+    isInfixDataCon (':':_) = True
+    isInfixDataCon _       = False
+
     dispatch :: Con -> Q [ConstructorInfo]
     dispatch =
       let defaultCase :: Con -> Q [ConstructorInfo]
-          defaultCase = go [] []
+          defaultCase = go [] [] False
             where
-              go tyvars context c =
+              go :: [TyVarBndr]
+                 -> Cxt
+                 -> Bool -- Is this a GADT? (see the documentation for
+                         -- for checkGadtFixity)
+                 -> Con
+                 -> Q [ConstructorInfo]
+              go tyvars context gadt c =
                 case c of
-                  NormalC n xs ->
-                    pure [ConstructorInfo n tyvars context (map snd xs)
-                                          NormalConstructor]
+                  NormalC n xs -> do
+                    let ts = map snd xs
+                    fi <- if gadt
+                             then checkGadtFixity ts n
+                             else return NormalConstructor
+                    pure [ConstructorInfo n tyvars context ts fi]
                   InfixC l n r ->
                     pure [ConstructorInfo n tyvars context [snd l,snd r]
                                           InfixConstructor]
@@ -348,7 +397,7 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                     pure [ConstructorInfo n tyvars context
                             (takeFieldTypes xs) (RecordConstructor fns)]
                   ForallC tyvars' context' c' ->
-                    go (tyvars'++tyvars) (context'++context) c'
+                    go (tyvars'++tyvars) (context'++context) True c'
 #if MIN_VERSION_template_haskell(2,11,0)
                   GadtC ns xs innerType ->
                     let ts = map snd xs in
@@ -359,26 +408,6 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                              (const $ return $ RecordConstructor fns)
                 where
                   gadtCase = normalizeGadtC typename params tyvars context
-
-                  -- A GADT constructor is declared infix when:
-                  --
-                  -- 1. Its name uses operator syntax (e.g., (:*:))
-                  -- 2. It has exactly two fields
-                  -- 3. It has a programmer-supplied fixity declaration
-                  checkGadtFixity :: [Type] -> Name -> Q ConstructorVariant
-                  checkGadtFixity ts n = do
-                    mbFi <- reifyFixity n
-                    return $ if isInfixDataCon (nameBase n)
-                                && length ts == 2
-                                && isJust mbFi
-                             then InfixConstructor
-                             else NormalConstructor
-
-                  -- Checks if a String names a valid Haskell infix data
-                  -- constructor (i.e., does it begin with a colon?).
-                  isInfixDataCon :: String -> Bool
-                  isInfixDataCon (':':_) = True
-                  isInfixDataCon _       = False
 #endif
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
           dataFamCompatCase :: Con -> Q [ConstructorInfo]
