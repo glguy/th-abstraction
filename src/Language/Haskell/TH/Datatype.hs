@@ -152,19 +152,29 @@ datatypeType di
 reifyDatatype ::
   Name {- ^ type constructor -} ->
   Q DatatypeInfo
-reifyDatatype n = normalizeInfo =<< reify n
+reifyDatatype n = normalizeInfo' "reifyDatatype" =<< reify n
 
 
 -- | Normalize 'Info' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
 normalizeInfo :: Info -> Q DatatypeInfo
-normalizeInfo (TyConI dec) = normalizeDec dec
+normalizeInfo = normalizeInfo' "normalizeInfo"
+
+normalizeInfo' :: String -> Info -> Q DatatypeInfo
+normalizeInfo' entry i =
+  case i of
+    TyConI dec -> normalizeDec dec
 # if MIN_VERSION_template_haskell(2,11,0)
-normalizeInfo (DataConI name _ parent) = reifyParent name parent
+    DataConI name _ parent   -> reifyParent name parent
 # else
-normalizeInfo (DataConI name _ parent _) = reifyParent name parent
+    DataConI name _ parent _ -> reifyParent name parent
 # endif
-normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
+    PrimTyConI{} -> bad "Primitive type not supported"
+    ClassI{}     -> bad "Class not supported"
+    FamilyI{}    -> bad "Type family not supported"
+    _            -> bad "Expected a type constructor"
+  where
+    bad msg = fail (entry ++ ": " ++ msg)
 
 
 reifyParent :: Name -> Name -> Q DatatypeInfo
@@ -191,18 +201,20 @@ reifyParent con parent =
     repairFamKindSigs famD instD
 #if MIN_VERSION_template_haskell(2,11,0)
       | DataFamilyD _ dvars _ <- famD
-      , NewtypeInstD cx n ts k con deriv <- instD
-      = NewtypeInstD cx n (repairVarKindsWith dvars ts) k con deriv
+      , NewtypeInstD cx n ts k c deriv <- instD
+      = NewtypeInstD cx n (repairVarKindsWith dvars ts) k c deriv
+
       | DataFamilyD _ dvars _ <- famD
-      , DataInstD cx n ts k con deriv <- instD
-      = DataInstD cx n (repairVarKindsWith dvars ts) k con deriv
+      , DataInstD cx n ts k c deriv <- instD
+      = DataInstD cx n (repairVarKindsWith dvars ts) k c deriv
 #else
       | FamilyD _ _ dvars _ <- famD
-      , NewtypeInstD cx n ts con deriv <- instD
-      = NewtypeInstD cx n (repairVarKindsWith dvars ts) con deriv
+      , NewtypeInstD cx n ts c deriv <- instD
+      = NewtypeInstD cx n (repairVarKindsWith dvars ts) c deriv
+
       | FamilyD _ _ dvars _ <- famD
-      , DataInstD cx n ts con deriv <- instD
-      = DataInstD cx n (repairVarKindsWith dvars ts) con deriv
+      , DataInstD cx n ts c deriv <- instD
+      = DataInstD cx n (repairVarKindsWith dvars ts) c deriv
 #endif
       | otherwise = instD
       where
@@ -309,7 +321,7 @@ normalizeDec' ::
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name params cons variant =
-  do cons' <- concat <$> traverse (normalizeCon name params variant) cons
+  do cons' <- concat <$> traverse (normalizeCon name params) cons
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -325,10 +337,9 @@ normalizeDec' context name params cons variant =
 normalizeCon ::
   Name            {- ^ Type constructor  -} ->
   [Type]          {- ^ Type parameters   -} ->
-  DatatypeVariant {- ^ Extra information -} ->
   Con             {- ^ Constructor       -} ->
   Q [ConstructorInfo]
-normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
+normalizeCon typename params = fmap (map giveTyVarBndrsStarKinds) . dispatch
   where
     -- A GADT constructor is declared infix when:
     --
@@ -412,7 +423,7 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
           dataFamCompatCase :: Con -> Q [ConstructorInfo]
           dataFamCompatCase = go []
-			where
+            where
               go tyvars c =
                 case c of
                   NormalC n _ ->
@@ -459,27 +470,13 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                          | otherwise = count p xs
           -}
 
-          -- Decompose a function type into its context, argument types,
-          -- and return types. For instance, this
-          --
-          --   (Show a, b ~ Int) => (a -> b) -> Char -> Int
-          --
-          -- becomes
-          --
-          --   ([Show a, b ~ Int], [a -> b, Char] :|- Int)
-          uncurryType :: Type -> (Cxt, NonEmptySnoc Type)
-          uncurryType = go [] []
-            where
-              go ctxt args (AppT (AppT ArrowT t1) t2) = go ctxt (t1:args) t2
-              go ctxt args (ForallT _ ctxt' t)        = go (ctxt++ctxt') args t
-              go ctxt args t                          = (ctxt, reverse args :|- t)
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
            -- needs to be performed to work around an old bug that eta-reduces the
            -- type patterns of data families.
            DataInstance    -> dataFamCompatCase
            NewtypeInstance -> dataFamCompatCase
-           Datatype	       -> defaultCase
+           Datatype        -> defaultCase
            Newtype         -> defaultCase
 #else
       in defaultCase
@@ -571,7 +568,25 @@ decomposeType = go []
 -- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
 -- saves dependencies for supporting older GHCs
 data NonEmpty a = a :| [a]
+
+#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
 data NonEmptySnoc a = [a] :|- a
+
+-- Decompose a function type into its context, argument types,
+-- and return types. For instance, this
+--
+--   (Show a, b ~ Int) => (a -> b) -> Char -> Int
+--
+-- becomes
+--
+--   ([Show a, b ~ Int], [a -> b, Char] :|- Int)
+uncurryType :: Type -> (Cxt, NonEmptySnoc Type)
+uncurryType = go [] []
+  where
+    go ctxt args (AppT (AppT ArrowT t1) t2) = go ctxt (t1:args) t2
+    go ctxt args (ForallT _ ctxt' t)        = go (ctxt++ctxt') args t
+    go ctxt args t                          = (ctxt, reverse args :|- t)
+#endif
 
 -- | Resolve any infix type application in a type using the fixities that
 -- are currently available. Starting in `template-haskell-2.11` types could
