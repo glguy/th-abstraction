@@ -17,7 +17,7 @@ Sample output for @'reifyDatatype' ''Maybe@
 'DatatypeInfo'
  { 'datatypeContext' = []
  , 'datatypeName'    = GHC.Base.Maybe
- , 'datatypeVars'    = [ 'VarT' a_3530822107858468866 ]
+ , 'datatypeVars'    = [ 'SigT' ('VarT' a_3530822107858468866) 'StarT' ]
  , 'datatypeVariant' = 'Datatype'
  , 'datatypeCons'    =
      [ 'ConstructorInfo'
@@ -158,20 +158,20 @@ reifyDatatype n = normalizeInfo =<< reify n
 normalizeInfo :: Info -> Q DatatypeInfo
 normalizeInfo (TyConI dec) = normalizeDec dec
 # if MIN_VERSION_template_haskell(2,11,0)
-normalizeInfo (DataConI name ty parent) = reifyParent name ty parent
+normalizeInfo (DataConI name _ parent) = reifyParent name parent
 # else
-normalizeInfo (DataConI name ty parent _) = reifyParent name ty parent
+normalizeInfo (DataConI name _ parent _) = reifyParent name parent
 # endif
 normalizeInfo _ = fail "reifyDatatype: Expected a type constructor"
 
 
-reifyParent :: Name -> Type -> Name -> Q DatatypeInfo
-reifyParent con ty parent =
+reifyParent :: Name -> Name -> Q DatatypeInfo
+reifyParent con parent =
   do info <- reify parent
      case info of
        TyConI dec -> normalizeDec dec
        FamilyI dec instances ->
-         do let instances1 = map (repairEtaReduction dec ty) instances
+         do let instances1 = map (repairEtaReduction dec) instances
                 instances2 = map (repairFamKindSigs dec) instances1
             instances3 <- traverse normalizeDec instances2
             case find p instances3 of
@@ -217,29 +217,30 @@ reifyParent con ty parent =
     kindPart (KindedTV _ k) = [k]
     kindPart (PlainTV  _  ) = []
 
+    etaExpandTypes :: [TyVarBndr] -> [Type] -> [Type]
+    etaExpandTypes dvars ts =
+      let nparams   = length dvars
+          kparams   = countKindVars dvars
+          tsNoKinds = drop kparams ts
+          extraTys  = drop (length tsNoKinds) (bndrParams dvars)
+      in tsNoKinds ++ extraTys
+
     countKindVars = length . freeVariables . map kindPart
     -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
     -- type variables on the data constructor.
+    --
+    -- We opt to avoid propagating these new type variables through to the
+    -- constructor now, but we will return to this task in normalizeCon.
     repairEtaReduction
       (FamilyD _ _ dvars _)
-      (ForallT tvars _ _)
       (NewtypeInstD cx n ts con deriv) =
-        NewtypeInstD cx n ts' con deriv
-      where
-        nparams = length dvars
-        kparams = countKindVars dvars
-        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+        NewtypeInstD cx n (etaExpandTypes dvars ts) con deriv
     repairEtaReduction
       (FamilyD _ _ dvars _)
-      (ForallT tvars _ _)
       (DataInstD cx n ts cons deriv) =
-        DataInstD cx n ts' cons deriv
-      where
-        nparams = length dvars
-        kparams = countKindVars dvars
-        ts'     = take nparams (drop kparams (ts ++ bndrParams tvars))
+        DataInstD cx n (etaExpandTypes dvars ts) cons deriv
 #endif
-    repairEtaReduction _ _ x = x
+    repairEtaReduction _ x = x
 
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
@@ -306,7 +307,7 @@ normalizeDec' ::
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name params cons variant =
-  do cons' <- concat <$> traverse (normalizeCon name params) cons
+  do cons' <- concat <$> traverse (normalizeCon name params variant) cons
      pure DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -316,37 +317,120 @@ normalizeDec' context name params cons variant =
        }
 
 -- | Normalize a 'Con' into a 'ConstructorInfo'. This requires knowledge of
--- the type and parameters of the constructor as extracted from the outer
+-- the type and parameters of the constructor, as well as whether the constructor
+-- is for a data family instance, as extracted from the outer
 -- 'Dec'.
 normalizeCon ::
-  Name   {- ^ Type constructor -} ->
-  [Type] {- ^ Type parameters  -} ->
-  Con    {- ^ Constructor      -} ->
+  Name            {- ^ Type constructor  -} ->
+  [Type]          {- ^ Type parameters   -} ->
+  DatatypeVariant {- ^ Extra information -} ->
+  Con             {- ^ Constructor       -} ->
   Q [ConstructorInfo]
-normalizeCon typename params = fmap (map giveTyVarBndrsStarKinds) . go [] []
+normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
   where
-    go tyvars context c =
-      case c of
-        NormalC n xs ->
-          pure [ConstructorInfo n tyvars context (map snd xs) NormalConstructor]
-        InfixC l n r ->
-          pure [ConstructorInfo n tyvars context [snd l,snd r] NormalConstructor]
-        RecC n xs ->
-          let fns = takeFieldNames xs in
-          pure [ConstructorInfo n tyvars context
-                  (takeFieldTypes xs) (RecordConstructor fns)]
-        ForallC tyvars' context' c' ->
-          go (tyvars'++tyvars) (context'++context) c'
-
+    dispatch :: Con -> Q [ConstructorInfo]
+    dispatch =
+      let defaultCase :: Con -> Q [ConstructorInfo]
+          defaultCase = go [] []
+            where
+              go tyvars context c =
+                case c of
+                  NormalC n xs ->
+                    pure [ConstructorInfo n tyvars context (map snd xs)
+                                          NormalConstructor]
+                  InfixC l n r ->
+                    pure [ConstructorInfo n tyvars context [snd l,snd r]
+                                          NormalConstructor]
+                  RecC n xs ->
+                    let fns = takeFieldNames xs in
+                    pure [ConstructorInfo n tyvars context
+                            (takeFieldTypes xs) (RecordConstructor fns)]
+                  ForallC tyvars' context' c' ->
+                    go (tyvars'++tyvars) (context'++context) c'
 #if MIN_VERSION_template_haskell(2,11,0)
-        GadtC ns xs innerType ->
-          gadtCase ns innerType (map snd xs) NormalConstructor
-        RecGadtC ns xs innerType ->
-          let fns = takeFieldNames xs in
-          gadtCase ns innerType (takeFieldTypes xs) (RecordConstructor fns)
-      where
-        gadtCase = normalizeGadtC typename params tyvars context
+                  GadtC ns xs innerType ->
+                    gadtCase ns innerType (map snd xs) NormalConstructor
+                  RecGadtC ns xs innerType ->
+                    let fns = takeFieldNames xs in
+                    gadtCase ns innerType (takeFieldTypes xs) (RecordConstructor fns)
+                where
+                  gadtCase = normalizeGadtC typename params tyvars context
+#endif
+#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
+          dataFamCompatCase :: Con -> Q [ConstructorInfo]
+          dataFamCompatCase = go []
+			where
+              go tyvars c =
+                case c of
+                  NormalC n _ ->
+                    dataFamCase' n tyvars NormalConstructor
+                  InfixC _ n _ ->
+                    dataFamCase' n tyvars NormalConstructor
+                  RecC n xs ->
+                    dataFamCase' n tyvars (RecordConstructor (takeFieldNames xs))
+                  ForallC tyvars' context' c' ->
+                    go (tyvars'++tyvars) c'
 
+          dataFamCase' :: Name -> [TyVarBndr] -> ConstructorVariant
+                       -> Q [ConstructorInfo]
+          dataFamCase' n tyvars variant = do
+            info <- reify n
+            case info of
+              DataConI _ ty _ _ -> do
+                let (context, argTys :|- returnTy) = uncurryType ty
+                returnTy' <- resolveTypeSynonyms returnTy
+                -- Notice that we've ignored the Cxt and argument Types from the
+                -- Con argument above, as they might be scoped over eta-reduced
+                -- variables. Instead of trying to figure out what the
+                -- eta-reduced variables should be substituted with post facto,
+                -- we opt for the simpler approach of using the context and
+                -- argument types from the reified constructor Info, which will
+                -- at least be correctly scoped. This will make the task of
+                -- substituting those types with the variables we put in
+                -- place of the eta-reduced variables (in normalizeDec)
+                -- much easier.
+                normalizeGadtC typename params tyvars context [n]
+                               returnTy' argTys variant
+              _ -> fail "normalizeCon: impossible"
+
+          {-
+          isRawVar :: Type -> Bool
+          isRawVar VarT{}     = True
+          isRawVar (SigT t _) = isRawVar t
+          isRawVar _          = False
+
+          -- Count the number of times a predicate is true
+          count :: (a -> Bool) -> [a] -> Int
+          count _ [] = 0
+          count p (x:xs) | p x       = 1 + count p xs
+                         | otherwise = count p xs
+          -}
+
+          -- Decompose a function type into its context, argument types,
+          -- and return types. For instance, this
+          --
+          --   (Show a, b ~ Int) => (a -> b) -> Char -> Int
+          --
+          -- becomes
+          --
+          --   ([Show a, b ~ Int], [a -> b, Char] :|- Int)
+          uncurryType :: Type -> (Cxt, NonEmptySnoc Type)
+          uncurryType = go [] []
+            where
+              go ctxt args (AppT (AppT ArrowT t1) t2) = go ctxt (t1:args) t2
+              go ctxt args (ForallT _ ctxt' t)        = go (ctxt++ctxt') args t
+              go ctxt args t                          = (ctxt, reverse args :|- t)
+      in case variant of
+           -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
+           -- needs to be performed to work around an old bug that eta-reduces the
+           -- type patterns of data families.
+           DataInstance    -> dataFamCompatCase
+           NewtypeInstance -> dataFamCompatCase
+           Datatype	       -> defaultCase
+           Newtype         -> defaultCase
+#else
+      in defaultCase
+#endif
 
 normalizeGadtC ::
   Name               {- ^ Type constructor             -} ->
@@ -389,10 +473,9 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
     aux (VarT n,p) (subst, context) =
       case p of
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
-        _ -> (subst, EqualityT `AppT` VarT n `AppT` p : context)
+        _ -> (subst, equalPred (VarT n) p : context)
 
     aux _ sc = sc
-#endif
 
 -- | Expand all of the type synonyms in a type.
 resolveTypeSynonyms :: Type -> Q Type
@@ -431,7 +514,7 @@ decomposeType = go []
 -- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
 -- saves dependencies for supporting older GHCs
 data NonEmpty a = a :| [a]
-
+data NonEmptySnoc a = [a] :|- a
 
 -- | Resolve any infix type application in a type using the fixities that
 -- are currently available. Starting in `template-haskell-2.11` types could
