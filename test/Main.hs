@@ -21,9 +21,12 @@ import Harness
 
 type Gadt1Int = Gadt1 Int
 
+infixr 6 :**:
 data Gadt1 (a :: *) where
-  Gadtc1 :: Int   -> Gadt1Int
-  Gadtc2 :: (a,a) -> Gadt1 a
+  Gadtc1 :: Int          -> Gadt1Int
+  Gadtc2 :: (a,a)        -> Gadt1 a
+  (:**:) :: Bool -> Char -> Gadt1 ()     -- This is declared infix
+  (:!!:) :: Char -> Bool -> Gadt1 Double -- This is not
 
 data Adt1 (a :: *) (b :: *) = Adtc1 (a,b) | Bool `Adtc2` Int
 
@@ -69,10 +72,11 @@ data instance Poly a = MkPoly
 data family GadtFam (a :: *) (b :: *)
 data instance GadtFam c d where
   MkGadtFam1 :: x   -> y        -> GadtFam y x
-  MkGadtFam2 :: e   -> f        -> GadtFam [e] f
-  MkGadtFam3 :: Int -> Int      -> GadtFam Int Int
+  (:&&:)     :: e   -> f        -> GadtFam [e] f   -- This is declard infix
+  (:^^:)     :: Int -> Int      -> GadtFam Int Int -- This is not
   MkGadtFam4 :: (Int ~ z) => z  -> GadtFam z z
   MkGadtFam5 :: (q ~ Char) => q -> GadtFam Bool Bool
+infixl 3 :&&:
 
 return [] -- segment type declarations above from refiy below
 
@@ -114,7 +118,7 @@ adt1Test =
                    , constructorContext = []
                    , constructorVars = []
                    , constructorFields = [ConT ''Bool, ConT ''Int]
-                   , constructorVariant = NormalConstructor }
+                   , constructorVariant = InfixConstructor }
                ]
            }
    )
@@ -143,6 +147,18 @@ gadt1Test =
                    , constructorVars = []
                    , constructorContext = []
                    , constructorFields = [AppT (AppT (TupleT 2) a) a]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName = '(:**:)
+                   , constructorVars = []
+                   , constructorContext = [equalPred a (TupleT 0)]
+                   , constructorFields = [ConT ''Bool, ConT ''Char]
+                   , constructorVariant = InfixConstructor }
+               , ConstructorInfo
+                   { constructorName = '(:!!:)
+                   , constructorVars = []
+                   , constructorContext = [equalPred a (ConT ''Double)]
+                   , constructorFields = [ConT ''Char, ConT ''Bool]
                    , constructorVariant = NormalConstructor }
                ]
            }
@@ -365,13 +381,13 @@ gadtFamTest =
                    , constructorFields  = [dTy,cTy]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
-                   { constructorName    = 'MkGadtFam2
+                   { constructorName    = '(:&&:)
                    , constructorVars    = [PlainTV e]
                    , constructorContext = [equalPred cTy (AppT ListT eTy)]
                    , constructorFields  = [eTy,dTy]
-                   , constructorVariant = NormalConstructor }
+                   , constructorVariant = InfixConstructor }
                , ConstructorInfo
-                   { constructorName    = 'MkGadtFam3
+                   { constructorName    = '(:^^:)
                    , constructorVars    = []
                    , constructorContext = [ equalPred cTy (ConT ''Int)
                                           , equalPred dTy (ConT ''Int)
