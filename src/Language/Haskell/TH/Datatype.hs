@@ -88,7 +88,7 @@ import           Data.Foldable (foldMap, foldl')
 import           Data.List (find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe
 import           Control.Monad (foldM)
 import           GHC.Generics (Generic)
 import           Language.Haskell.TH
@@ -132,6 +132,8 @@ data ConstructorInfo = ConstructorInfo
 -- | Possible variants of data constructors.
 data ConstructorVariant
   = NormalConstructor        -- ^ Constructor without field names
+  | InfixConstructor         -- ^ Constructor without field names that is
+                             --   declared infix
   | RecordConstructor [Name] -- ^ Constructor with field names
   deriving (Show, Eq, Ord, Typeable, Data, Generic)
 
@@ -340,7 +342,7 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                                           NormalConstructor]
                   InfixC l n r ->
                     pure [ConstructorInfo n tyvars context [snd l,snd r]
-                                          NormalConstructor]
+                                          InfixConstructor]
                   RecC n xs ->
                     let fns = takeFieldNames xs in
                     pure [ConstructorInfo n tyvars context
@@ -349,12 +351,34 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                     go (tyvars'++tyvars) (context'++context) c'
 #if MIN_VERSION_template_haskell(2,11,0)
                   GadtC ns xs innerType ->
-                    gadtCase ns innerType (map snd xs) NormalConstructor
+                    let ts = map snd xs in
+                    gadtCase ns innerType ts (checkGadtFixity ts)
                   RecGadtC ns xs innerType ->
                     let fns = takeFieldNames xs in
-                    gadtCase ns innerType (takeFieldTypes xs) (RecordConstructor fns)
+                    gadtCase ns innerType (takeFieldTypes xs)
+                             (const $ return $ RecordConstructor fns)
                 where
                   gadtCase = normalizeGadtC typename params tyvars context
+
+                  -- A GADT constructor is declared infix when:
+                  --
+                  -- 1. Its name uses operator syntax (e.g., (:*:))
+                  -- 2. It has exactly two fields
+                  -- 3. It has a programmer-supplied fixity declaration
+                  checkGadtFixity :: [Type] -> Name -> Q ConstructorVariant
+                  checkGadtFixity ts n = do
+                    mbFi <- reifyFixity n
+                    return $ if isInfixDataCon (nameBase n)
+                                && length ts == 2
+                                && isJust mbFi
+                             then InfixConstructor
+                             else NormalConstructor
+
+                  -- Checks if a String names a valid Haskell infix data
+                  -- constructor (i.e., does it begin with a colon?).
+                  isInfixDataCon :: String -> Bool
+                  isInfixDataCon (':':_) = True
+                  isInfixDataCon _       = False
 #endif
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
           dataFamCompatCase :: Con -> Q [ConstructorInfo]
@@ -365,7 +389,7 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                   NormalC n _ ->
                     dataFamCase' n tyvars NormalConstructor
                   InfixC _ n _ ->
-                    dataFamCase' n tyvars NormalConstructor
+                    dataFamCase' n tyvars InfixConstructor
                   RecC n xs ->
                     dataFamCase' n tyvars (RecordConstructor (takeFieldNames xs))
                   ForallC tyvars' context' c' ->
@@ -390,7 +414,7 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                 -- place of the eta-reduced variables (in normalizeDec)
                 -- much easier.
                 normalizeGadtC typename params tyvars context [n]
-                               returnTy' argTys variant
+                               returnTy' argTys (const $ return variant)
               _ -> fail "normalizeCon: impossible"
 
           {-
@@ -433,16 +457,18 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
 #endif
 
 normalizeGadtC ::
-  Name               {- ^ Type constructor             -} ->
-  [Type]             {- ^ Type parameters              -} ->
-  [TyVarBndr]        {- ^ Constructor parameters       -} ->
-  Cxt                {- ^ Constructor context          -} ->
-  [Name]             {- ^ Constructor names            -} ->
-  Type               {- ^ Declared type of constructor -} ->
-  [Type]             {- ^ Constructor field types      -} ->
-  ConstructorVariant {- ^ Constructor variant          -} ->
+  Name        {- ^ Type constructor             -} ->
+  [Type]      {- ^ Type parameters              -} ->
+  [TyVarBndr] {- ^ Constructor parameters       -} ->
+  Cxt         {- ^ Constructor context          -} ->
+  [Name]      {- ^ Constructor names            -} ->
+  Type        {- ^ Declared type of constructor -} ->
+  [Type]      {- ^ Constructor field types      -} ->
+  (Name -> Q ConstructorVariant)
+              {- ^ Determine a constructor variant
+                   from its 'Name' -}              ->
   Q [ConstructorInfo]
-normalizeGadtC typename params tyvars context names innerType fields variant =
+normalizeGadtC typename params tyvars context names innerType fields getVariant =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
@@ -453,8 +479,10 @@ normalizeGadtC typename params tyvars context names innerType fields variant =
 
              context2 = applySubstitution subst (context1 ++ context)
              fields'  = applySubstitution subst fields
-         in pure [ConstructorInfo name tyvars' context2 fields' variant
-                 | name <- names]
+         in sequence [ ConstructorInfo name tyvars' context2 fields' <$> variantQ
+                     | name <- names
+                     , let variantQ = getVariant name
+                     ]
 
        _ -> fail "normalizeGadtC: Expected type constructor application"
 

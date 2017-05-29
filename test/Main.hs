@@ -21,9 +21,12 @@ import Harness
 
 type Gadt1Int = Gadt1 Int
 
+infixr 6 :**:
 data Gadt1 (a :: *) where
-  Gadtc1 :: Int   -> Gadt1Int
-  Gadtc2 :: (a,a) -> Gadt1 a
+  Gadtc1 :: Int          -> Gadt1Int
+  Gadtc2 :: (a,a)        -> Gadt1 a
+  (:**:) :: Bool -> Char -> Gadt1 ()     -- This is declared infix
+  (:!!:) :: Char -> Bool -> Gadt1 Double -- This is not
 
 data Adt1 (a :: *) (b :: *) = Adtc1 (a,b) | Bool `Adtc2` Int
 
@@ -114,7 +117,7 @@ adt1Test =
                    , constructorContext = []
                    , constructorVars = []
                    , constructorFields = [ConT ''Bool, ConT ''Int]
-                   , constructorVariant = NormalConstructor }
+                   , constructorVariant = InfixConstructor }
                ]
            }
    )
@@ -143,6 +146,18 @@ gadt1Test =
                    , constructorVars = []
                    , constructorContext = []
                    , constructorFields = [AppT (AppT (TupleT 2) a) a]
+                   , constructorVariant = NormalConstructor }
+               , ConstructorInfo
+                   { constructorName = '(:**:)
+                   , constructorVars = []
+                   , constructorContext = [equalPred a (TupleT 0)]
+                   , constructorFields = [ConT ''Bool, ConT ''Char]
+                   , constructorVariant = InfixConstructor }
+               , ConstructorInfo
+                   { constructorName = '(:!!:)
+                   , constructorVars = []
+                   , constructorContext = [equalPred a (ConT ''Double)]
+                   , constructorFields = [ConT ''Char, ConT ''Bool]
                    , constructorVariant = NormalConstructor }
                ]
            }
