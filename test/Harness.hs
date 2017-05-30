@@ -1,4 +1,4 @@
-{-# Language TemplateHaskell #-}
+{-# Language CPP, TemplateHaskell #-}
 
 {-|
 Module      : Harness
@@ -12,19 +12,16 @@ that the computed 'DatatypeInfo' values match the expected ones
 up to alpha renaming.
 
 -}
-module Harness (validate) where
+module Harness (validate, varKCompat) where
 
 import           Control.Monad
 import qualified Data.Map as Map
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype
+import           Language.Haskell.TH.Lib (starK)
 
 validate :: DatatypeInfo -> DatatypeInfo -> ExpQ
 validate x y = either fail (\_ -> [| return () |]) (equateDI x y)
-
-stripOuterSigT :: Type -> Type
-stripOuterSigT (SigT t _) = t
-stripOuterSigT t          = t
 
 -- | If the arguments are equal up to renaming return @'Right' ()@,
 -- otherwise return a string exlaining the mismatch.
@@ -43,7 +40,7 @@ equateDI dat1 dat2 =
        (applySubstitution sub (datatypeContext dat2))
 
      check "datatypeVars" id
-       (map stripOuterSigT (datatypeVars dat1))
+       (datatypeVars dat1)
        (applySubstitution sub (datatypeVars dat2))
 
      zipWithM_ equateCI
@@ -77,3 +74,12 @@ check :: (Show b, Eq b) => String -> (a -> b) -> a -> a -> Either String ()
 check lbl f x y
   | f x == f y = Right ()
   | otherwise  = Left (lbl ++ ":\n\n" ++ show (f x) ++ "\n\n" ++ show (f y))
+
+-- If on a recent-enough version of Template Haskell, construct a kind variable.
+-- Otherwise, default to starK.
+varKCompat :: Name -> Kind
+#if MIN_VERSION_template_haskell(2,8,0)
+varKCompat = VarT
+#else
+varKCompat _ = starK
+#endif
