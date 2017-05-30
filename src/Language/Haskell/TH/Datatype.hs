@@ -363,12 +363,12 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
       -- it was user-supplied.
       --
       -- We can approximate whether a fixity was user-supplied by checking if
-      -- it is not equal to (Fixity 9 InfixL), as GHC always uses that as its
-      -- default fixity. Unfortunately, there is no way to distinguish between
-      -- a user-suppled (Fixity 9 InfixL) and the default (Fixity 9 InfixL),
-      -- so we cannot properly handle that case.
+      -- it is not equal to defaultFixity (infixl 9). Unfortunately,
+      -- there is no way to distinguish between a user-supplied fixity of
+      -- infixl 9 and the fixity that GHC defaults to, so we cannot properly
+      -- handle that case.
       DataConI _ _ _ fi <- reify n
-      let userSuppliedFixity = fi /= Fixity 9 InfixL
+      let userSuppliedFixity = fi /= defaultFixity
 #endif
       return $ if isInfixDataCon (nameBase n)
                   && length ts == 2
