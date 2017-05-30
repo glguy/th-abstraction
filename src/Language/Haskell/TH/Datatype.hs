@@ -101,6 +101,11 @@ import           Data.Traversable (traverse, sequenceA)
 #endif
 
 -- | Normalized information about newtypes and data types.
+--
+-- 'datatypeVars' types will have an outermost 'SigT' to indicate the
+-- parameter's kind. These types will be simple variables for /ADT/s
+-- declared with @data@ and @newtype@, but can be more complex for
+-- types declared with @data instance@ and @newtype instance@.
 data DatatypeInfo = DatatypeInfo
   { datatypeContext :: Cxt               -- ^ Data type context (deprecated)
   , datatypeName    :: Name              -- ^ Type constructor
@@ -112,9 +117,9 @@ data DatatypeInfo = DatatypeInfo
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
-  = Datatype -- ^ Type declared with @data@
-  | Newtype  -- ^ Type declared with @newtype@
-  | DataInstance -- ^ Type declared with @data instance@
+  = Datatype        -- ^ Type declared with @data@
+  | Newtype         -- ^ Type declared with @newtype@
+  | DataInstance    -- ^ Type declared with @data instance@
   | NewtypeInstance -- ^ Type declared with @newtype instance@
   deriving (Show, Read, Eq, Ord, Typeable, Data, Generic)
 
@@ -148,9 +153,20 @@ datatypeType di
 
 
 -- | Compute a normalized view of the metadata about a data type or newtype
--- given a type constructor.
+-- given a constructor.
+--
+-- This function will accept any constructor (value or type) for a type
+-- declared with newtype or data. Value constructors must be used to
+-- lookup datatype information about /data instances/ and /newtype instances/.
+--
+-- GADT constructors are normalized into datatypes with explicit equality
+-- constraints.
+--
+-- This function will apply various bug-fixes to the output of the underlying
+-- @template-haskell@ library in order to provide a view of datatypes in
+-- as uniform a way as possible.
 reifyDatatype ::
-  Name {- ^ type constructor -} ->
+  Name {- ^ constructor -} ->
   Q DatatypeInfo
 reifyDatatype n = normalizeInfo' "reifyDatatype" =<< reify n
 
@@ -169,10 +185,12 @@ normalizeInfo' entry i =
 # else
     DataConI name _ parent _ -> reifyParent name parent
 # endif
-    PrimTyConI{} -> bad "Primitive type not supported"
-    ClassI{}     -> bad "Class not supported"
-    FamilyI{}    -> bad "Type family not supported"
-    _            -> bad "Expected a type constructor"
+    PrimTyConI{}             -> bad "Primitive type not supported"
+    ClassI{}                 -> bad "Class not supported"
+    FamilyI DataInstD{} _    -> bad "Use a value constructor to reify a data instance"
+    FamilyI NewtypeInstD{} _ -> bad "Use a value constructor to reify a newtype instance"
+    FamilyI _ _              -> bad "Type families not supported"
+    _                        -> bad "Expected a type constructor"
   where
     bad msg = fail (entry ++ ": " ++ msg)
 
