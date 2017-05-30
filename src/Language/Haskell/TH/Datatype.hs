@@ -183,23 +183,71 @@ reifyParent con parent =
      case info of
        TyConI dec -> normalizeDec dec
        FamilyI dec instances ->
-         do let instances1 = map (repairEtaReduction dec) instances
-                instances2 = map (repairFamKindSigs dec) instances1
-            instances3 <- traverse normalizeDec instances2
-            case find p instances3 of
+         do let instances1 = map (repairDataFam dec) instances
+            instances2 <- traverse normalizeDec instances1
+            case find p instances2 of
               Just inst -> return inst
               Nothing   -> fail "PANIC: reifyParent lost the instance"
        _ -> fail "PANIC: reifyParent unexpected parent"
   where
     p info = con `elem` map constructorName (datatypeCons info)
 
-    -- GHC leaves off the kind signatures on the type patterns of data family
-    -- instances where a kind signature isn't specified explicitly.
-    -- Here, we can use the parent data family's type variable binders to
-    -- reconstruct the kind signatures if they are missing.
-    repairFamKindSigs :: Dec -> Dec -> Dec
-    repairFamKindSigs famD instD
-#if MIN_VERSION_template_haskell(2,11,0)
+#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
+    kindPart (KindedTV _ k) = [k]
+    kindPart (PlainTV  _  ) = []
+
+    -- A version of repairVarKindsWith that does much more extra work to
+    -- (1) eta-expand missing type patterns, and (2) ensure that the kind
+    -- signatures for these new type patterns match accordingly.
+    repairVarKindsWith' :: [TyVarBndr] -> [Type] -> [Type]
+    repairVarKindsWith' dvars ts =
+      let nparams             = length dvars
+          kparams             = kindVars dvars
+          (tsKinds,tsNoKinds) = splitAt (length kparams) ts
+          tsKinds'            = map sanitizeStars tsKinds
+          extraTys            = drop (length tsNoKinds) (bndrParams dvars)
+          ts'                 = tsNoKinds ++ extraTys -- eta-expand
+      in applySubstitution (Map.fromList (zip kparams tsKinds')) $
+         repairVarKindsWith dvars ts'
+
+    -- A GHC 7.6-specific bug requires us to replace all occurrences of
+    -- (ConT GHC.Prim.*) with StarT, or else Template Haskell will reject it.
+    -- Luckily, (ConT GHC.Prim.*) only seems to occur in this one spot.
+    sanitizeStars :: Kind -> Kind
+    sanitizeStars = go
+      where
+        go :: Kind -> Kind
+        go (AppT t1 t2)                 = AppT (go t1) (go t2)
+        go (SigT t k)                   = SigT (go t) (go k)
+        go (ConT n) | n == starKindName = StarT
+        go t                            = t
+
+    kindVars = freeVariables . map kindPart
+
+    -- Sadly, Template Haskell's treatment of data family instances leaves much
+    -- to be desired. Here are some problems that we have to work around:
+    --
+    -- 1. On all versions of GHC, TH leaves off the kind signatures on the
+    --    type patterns of data family instances where a kind signature isn't
+    --    specified explicitly. Here, we can use the parent data family's
+    --    type variable binders to reconstruct the kind signatures if they
+    --    are missing.
+    -- 2. On GHC 7.6 and 7.8, TH will eta-reduce data instances. We can find
+    --    the missing type variables on the data constructor.
+    --
+    -- We opt to avoid propagating these new type variables through to the
+    -- constructor now, but we will return to this task in normalizeCon.
+    repairDataFam
+      (FamilyD _ _ dvars _)
+      (NewtypeInstD cx n ts con deriv) =
+        NewtypeInstD cx n (repairVarKindsWith' dvars ts) con deriv
+    repairDataFam
+      (FamilyD _ _ dvars _)
+      (DataInstD cx n ts cons deriv) =
+        DataInstD cx n (repairVarKindsWith' dvars ts) cons deriv
+#else
+    repairDataFam famD instD
+# if MIN_VERSION_template_haskell(2,11,0)
       | DataFamilyD _ dvars _ <- famD
       , NewtypeInstD cx n ts k c deriv <- instD
       = NewtypeInstD cx n (repairVarKindsWith dvars ts) k c deriv
@@ -207,7 +255,7 @@ reifyParent con parent =
       | DataFamilyD _ dvars _ <- famD
       , DataInstD cx n ts k c deriv <- instD
       = DataInstD cx n (repairVarKindsWith dvars ts) k c deriv
-#else
+# else
       | FamilyD _ _ dvars _ <- famD
       , NewtypeInstD cx n ts c deriv <- instD
       = NewtypeInstD cx n (repairVarKindsWith dvars ts) c deriv
@@ -215,47 +263,17 @@ reifyParent con parent =
       | FamilyD _ _ dvars _ <- famD
       , DataInstD cx n ts c deriv <- instD
       = DataInstD cx n (repairVarKindsWith dvars ts) c deriv
+# endif
 #endif
-      | otherwise = instD
-      where
-        repairVarKindsWith :: [TyVarBndr] -> [Type] -> [Type]
-        repairVarKindsWith = zipWith stealKindForType
+    repairDataFam _ instD = instD
 
-        -- If a VarT is missing an explicit kind signature,
-        -- steal it from a TyVarBndr.
-        stealKindForType :: TyVarBndr -> Type -> Type
-        stealKindForType tvb t@VarT{} = SigT t (tvbKind tvb)
-        stealKindForType _   t        = t
+repairVarKindsWith :: [TyVarBndr] -> [Type] -> [Type]
+repairVarKindsWith = zipWith stealKindForType
 
-#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
-    kindPart (KindedTV _ k) = [k]
-    kindPart (PlainTV  _  ) = []
-
-    etaExpandTypes :: [TyVarBndr] -> [Type] -> [Type]
-    etaExpandTypes dvars ts =
-      let nparams   = length dvars
-          kparams   = countKindVars dvars
-          tsNoKinds = drop kparams ts
-          extraTys  = drop (length tsNoKinds) (bndrParams dvars)
-      in tsNoKinds ++ extraTys
-
-    countKindVars = length . freeVariables . map kindPart
-    -- GHC 7.8.4 will eta-reduce data instances. We can find the missing
-    -- type variables on the data constructor.
-    --
-    -- We opt to avoid propagating these new type variables through to the
-    -- constructor now, but we will return to this task in normalizeCon.
-    repairEtaReduction
-      (FamilyD _ _ dvars _)
-      (NewtypeInstD cx n ts con deriv) =
-        NewtypeInstD cx n (etaExpandTypes dvars ts) con deriv
-    repairEtaReduction
-      (FamilyD _ _ dvars _)
-      (DataInstD cx n ts cons deriv) =
-        DataInstD cx n (etaExpandTypes dvars ts) cons deriv
-#endif
-    repairEtaReduction _ x = x
-
+-- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
+stealKindForType :: TyVarBndr -> Type -> Type
+stealKindForType tvb t@VarT{} = SigT t (tvbKind tvb)
+stealKindForType _   t        = t
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
