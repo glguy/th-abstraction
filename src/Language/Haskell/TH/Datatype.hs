@@ -94,6 +94,7 @@ import           Data.List (find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
+import qualified Data.Traversable as T
 import           Control.Monad (foldM)
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype.Internal
@@ -105,7 +106,6 @@ import           GHC.Generics (Generic)
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
-import           Data.Traversable (traverse, sequenceA)
 #endif
 
 -- | Normalized information about newtypes and data types.
@@ -203,18 +203,31 @@ normalizeInfo = normalizeInfo' "normalizeInfo"
 normalizeInfo' :: String -> Info -> Q DatatypeInfo
 normalizeInfo' entry i =
   case i of
-    TyConI dec -> normalizeDec dec
-# if MIN_VERSION_template_haskell(2,11,0)
-    DataConI name _ parent   -> reifyParent name parent
-# else
-    DataConI name _ parent _ -> reifyParent name parent
-# endif
-    PrimTyConI{}             -> bad "Primitive type not supported"
-    ClassI{}                 -> bad "Class not supported"
-    FamilyI DataInstD{} _    -> bad "Use a value constructor to reify a data instance"
-    FamilyI NewtypeInstD{} _ -> bad "Use a value constructor to reify a newtype instance"
-    FamilyI _ _              -> bad "Type families not supported"
-    _                        -> bad "Expected a type constructor"
+    PrimTyConI{}                      -> bad "Primitive type not supported"
+    ClassI{}                          -> bad "Class not supported"
+#if MIN_VERSION_template_haskell(2,11,0)
+    FamilyI DataFamilyD{} _           ->
+#elif MIN_VERSION_template_haskell(2,7,0)
+    FamilyI (FamilyD DataFam _ _ _) _ ->
+#else
+    TyConI (FamilyD DataFam _ _ _)    ->
+#endif
+                                         bad "Use a value constructor to reify a data family instance"
+#if MIN_VERSION_template_haskell(2,7,0)
+    FamilyI _ _                       -> bad "Type families not supported"
+#endif
+    TyConI dec                        -> normalizeDec dec
+#if MIN_VERSION_template_haskell(2,11,0)
+    DataConI name _ parent            -> reifyParent name parent
+#elif MIN_VERSION_template_haskell(2,7,0)
+    DataConI name _ parent _          -> reifyParent name parent
+#else
+    -- Give a sensible error message if you try to look up a data family
+    -- instance constructor in GHC 7.0 or 7.2
+    DataConI{}                        -> bad $ "Data family instances can only " ++
+                                               "be reified with GHC 7.4 or later"
+#endif
+    _                                 -> bad "Expected a type constructor"
   where
     bad msg = fail (entry ++ ": " ++ msg)
 
@@ -224,12 +237,14 @@ reifyParent con parent =
   do info <- reify parent
      case info of
        TyConI dec -> normalizeDec dec
+#if MIN_VERSION_template_haskell(2,7,0)
        FamilyI dec instances ->
          do let instances1 = map (repairDataFam dec) instances
-            instances2 <- traverse normalizeDec instances1
+            instances2 <- mapM normalizeDec instances1
             case find p instances2 of
               Just inst -> return inst
               Nothing   -> fail "PANIC: reifyParent lost the instance"
+#endif
        _ -> fail "PANIC: reifyParent unexpected parent"
   where
     p info = con `elem` map constructorName (datatypeCons info)
@@ -381,8 +396,8 @@ normalizeDec' ::
   DatatypeVariant {- ^ Extra information   -} ->
   Q DatatypeInfo
 normalizeDec' context name params cons variant =
-  do cons' <- concat <$> traverse (normalizeCon name params variant) cons
-     pure DatatypeInfo
+  do cons' <- concat <$> mapM (normalizeCon name params variant) cons
+     return DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
        , datatypeVars    = params
@@ -460,14 +475,14 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                     fi <- if gadt
                              then checkGadtFixity ts n
                              else return NormalConstructor
-                    pure [ConstructorInfo n tyvars context ts fi]
+                    return [ConstructorInfo n tyvars context ts fi]
                   InfixC l n r ->
-                    pure [ConstructorInfo n tyvars context [snd l,snd r]
-                                          InfixConstructor]
+                    return [ConstructorInfo n tyvars context [snd l,snd r]
+                                            InfixConstructor]
                   RecC n xs ->
                     let fns = takeFieldNames xs in
-                    pure [ConstructorInfo n tyvars context
-                            (takeFieldTypes xs) (RecordConstructor fns)]
+                    return [ConstructorInfo n tyvars context
+                              (takeFieldTypes xs) (RecordConstructor fns)]
                   ForallC tyvars' context' c' ->
                     go (tyvars'++tyvars) (context'++context) True c'
 #if MIN_VERSION_template_haskell(2,11,0)
@@ -597,7 +612,7 @@ resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
   let f :| xs = decomposeType t
 
-      notTypeSynCase = foldl AppT f <$> traverse resolveTypeSynonyms xs in
+      notTypeSynCase = foldl AppT f <$> mapM resolveTypeSynonyms xs in
 
   case f of
     ConT n ->
@@ -655,13 +670,13 @@ uncurryType = go [] []
 resolveInfixT :: Type -> Q Type
 
 #if MIN_VERSION_template_haskell(2,11,0)
-resolveInfixT (ForallT vs cx t) = forallT vs (traverse resolveInfixT cx) (resolveInfixT t)
+resolveInfixT (ForallT vs cx t) = forallT vs (mapM resolveInfixT cx) (resolveInfixT t)
 resolveInfixT (f `AppT` x)      = resolveInfixT f `appT` resolveInfixT x
 resolveInfixT (ParensT t)       = resolveInfixT t
 resolveInfixT (InfixT l o r)    = conT o `appT` resolveInfixT l `appT` resolveInfixT r
 resolveInfixT (SigT t k)        = SigT <$> resolveInfixT t <*> resolveInfixT k
 resolveInfixT t@UInfixT{}       = resolveInfixT =<< resolveInfixT1 (gatherUInfixT t)
-resolveInfixT t                 = pure t
+resolveInfixT t                 = return t
 
 gatherUInfixT :: Type -> InfixList
 gatherUInfixT (UInfixT l o r) = ilAppend (gatherUInfixT l) o (gatherUInfixT r)
@@ -672,7 +687,7 @@ resolveInfixT1 :: InfixList -> TypeQ
 resolveInfixT1 = go []
   where
     go :: [(Type,Name,Fixity)] -> InfixList -> TypeQ
-    go ts (ILNil u) = pure (foldl (\acc (l,o,_) -> ConT o `AppT` l `AppT` acc) u ts)
+    go ts (ILNil u) = return (foldl (\acc (l,o,_) -> ConT o `AppT` l `AppT` acc) u ts)
     go ts (ILCons l o r) =
       do ofx <- fromMaybe defaultFixity <$> reifyFixity o
          let push = go ((l,o,ofx):ts) r
@@ -708,7 +723,7 @@ ilAppend (ILCons l1 o1 r1) o r = ILCons l1 o1 (ilAppend r1 o r)
 
 #else
 -- older template-haskell packages don't have UInfixT
-resolveInfixT = pure
+resolveInfixT = return
 #endif
 
 
@@ -759,7 +774,7 @@ quantifyType t
 freshenFreeVariables :: Type -> Q Type
 freshenFreeVariables t =
   do let xs = [ (n, VarT <$> newName (nameBase n)) | n <- freeVariables t]
-     subst <- sequenceA (Map.fromList xs)
+     subst <- T.sequence (Map.fromList xs)
      return (applySubstitution subst t)
 
 
@@ -844,9 +859,9 @@ combineSubstitutions x y = Map.union (fmap (applySubstitution y) x) y
 -- | Compute the type variable substitution that unifies a list of types,
 -- or fail in 'Q'.
 unifyTypes :: [Type] -> Q (Map Name Type)
-unifyTypes [] = pure Map.empty
+unifyTypes [] = return Map.empty
 unifyTypes (t:ts) =
-  do t':ts' <- traverse resolveTypeSynonyms (t:ts)
+  do t':ts' <- mapM resolveTypeSynonyms (t:ts)
      let aux sub u =
            do sub' <- unify' (applySubstitution sub t')
                              (applySubstitution sub u)
@@ -970,7 +985,7 @@ giveTyVarBndrsStarKinds info =
 -- https://ghc.haskell.org/trac/ghc/ticket/13618
 repair13618 :: DatatypeInfo -> Q DatatypeInfo
 repair13618 info =
-  do s <- sequenceA (Map.fromList substList)
+  do s <- T.sequence (Map.fromList substList)
      return info { datatypeCons = applySubstitution s (datatypeCons info) }
 
   where
@@ -1005,7 +1020,7 @@ dataDCompat c n ts cs ds =
 #elif MIN_VERSION_template_haskell(2,11,0)
 dataDCompat c n ts cs ds =
   dataD c n ts Nothing cs
-    (pure (map ConT ds))
+    (return (map ConT ds))
 #else
 dataDCompat = dataD
 #endif
