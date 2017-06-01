@@ -1,4 +1,8 @@
-{-# Language CPP, PolyKinds, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+
+#if MIN_VERSION_template_haskell(2,8,0)
+{-# Language PolyKinds #-}
+#endif
 
 {-|
 Module      : Main
@@ -47,23 +51,28 @@ data Gadt2 :: * -> * -> * where
   Gadt2c2 :: Gadt2 [a] a
   Gadt2c3 :: Gadt2 [a] [a]
 
+data VoidStoS (f :: * -> *)
+
+#if MIN_VERSION_template_haskell(2,7,0)
+
+-- Data families
+
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 
-#if MIN_VERSION_template_haskell(2,8,0)
+# if MIN_VERSION_template_haskell(2,8,0)
 data family DF1 (a :: k)
-#else
+# else
 data family DF1 (a :: *)
-#endif
+# endif
 data instance DF1 b = DF1 b
 
-data VoidStoS (f :: * -> *)
 
-#if MIN_VERSION_template_haskell(2,8,0)
+# if MIN_VERSION_template_haskell(2,8,0)
 data family Poly (a :: k)
-#else
+# else
 data family Poly (a :: *)
-#endif
+# endif
 data instance Poly a = MkPoly
 
 data family GadtFam (a :: *) (b :: *)
@@ -74,6 +83,8 @@ data instance GadtFam c d where
   MkGadtFam4 :: (Int ~ z) => z  -> GadtFam z z
   MkGadtFam5 :: (q ~ Char) => q -> GadtFam Bool Bool
 infixl 3 :&&:
+
+#endif
 
 return [] -- segment type declarations above from refiy below
 
@@ -87,11 +98,13 @@ main =
      equalTest
      showableTest
      recordTest
+     voidstosTest
+#if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
      ghc78bugTest
-     voidstosTest
      polyTest
      gadtFamTest
+#endif
 
 adt1Test :: IO ()
 adt1Test =
@@ -291,6 +304,21 @@ gadt2Test =
            }
   )
 
+voidstosTest :: IO ()
+voidstosTest =
+  $(do info <- reifyDatatype ''VoidStoS
+       let g = mkName "g"
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''VoidStoS
+           , datatypeContext = []
+           , datatypeVars    = [SigT (VarT g) (arrowKCompat starK starK)]
+           , datatypeVariant = Datatype
+           , datatypeCons    = []
+           }
+  )
+
+#if MIN_VERSION_template_haskell(2,7,0)
 dataFamilyTest :: IO ()
 dataFamilyTest =
   $(do info <- reifyDatatype 'DFMaybe
@@ -328,20 +356,6 @@ ghc78bugTest =
                    , constructorContext = []
                    , constructorFields  = [c]
                    , constructorVariant = NormalConstructor } ]
-           }
-  )
-
-voidstosTest :: IO ()
-voidstosTest =
-  $(do info <- reifyDatatype ''VoidStoS
-       let g = mkName "g"
-       validate info
-         DatatypeInfo
-           { datatypeName    = ''VoidStoS
-           , datatypeContext = []
-           , datatypeVars    = [SigT (VarT g) (arrowKCompat starK starK)]
-           , datatypeVariant = Datatype
-           , datatypeCons    = []
            }
   )
 
@@ -417,3 +431,4 @@ gadtFamTest =
                    , constructorVariant = NormalConstructor } ]
            }
    )
+#endif
