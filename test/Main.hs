@@ -53,6 +53,8 @@ data Gadt2 :: * -> * -> * where
 
 data VoidStoS (f :: * -> *)
 
+data StrictDemo = StrictDemo Int !Int {-# UNPACK #-} !Int
+
 #if MIN_VERSION_template_haskell(2,7,0)
 
 -- Data families
@@ -99,6 +101,7 @@ main =
      showableTest
      recordTest
      voidstosTest
+     strictDemoTest
 #if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
      ghc78bugTest
@@ -125,12 +128,14 @@ adt1Test =
                    , constructorContext = []
                    , constructorVars = []
                    , constructorFields = [AppT (AppT (TupleT 2) a) b]
+                   , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
                    { constructorName = 'Adtc2
                    , constructorContext = []
                    , constructorVars = []
                    , constructorFields = [ConT ''Bool, ConT ''Int]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant = InfixConstructor }
                ]
            }
@@ -154,24 +159,28 @@ gadt1Test =
                    , constructorVars = []
                    , constructorContext = [equalPred a (ConT ''Int)]
                    , constructorFields = [ConT ''Int]
+                   , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
                    { constructorName = 'Gadtc2
                    , constructorVars = []
                    , constructorContext = []
                    , constructorFields = [AppT (AppT (TupleT 2) a) a]
+                   , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
                    { constructorName = '(:**:)
                    , constructorVars = []
                    , constructorContext = [equalPred a (TupleT 0)]
                    , constructorFields = [ConT ''Bool, ConT ''Char]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant = InfixConstructor }
                , ConstructorInfo
                    { constructorName = '(:!!:)
                    , constructorVars = []
                    , constructorContext = [equalPred a (ConT ''Double)]
                    , constructorFields = [ConT ''Char, ConT ''Bool]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                ]
            }
@@ -186,12 +195,13 @@ gadtrec1Test =
            [v1K,v2K]     = map (\n -> KindedTV n starK) names
 
        let con = ConstructorInfo
-                   { constructorName    = 'Gadtrecc1
-                   , constructorVars    = [v1K, v2K]
-                   , constructorContext =
+                   { constructorName       = 'Gadtrecc1
+                   , constructorVars       = [v1K, v2K]
+                   , constructorContext    =
                         [equalPred a (AppT (AppT (TupleT 2) (VarT v1)) (VarT v2))]
-                   , constructorFields  = [VarT v1, VarT v2]
-                   , constructorVariant = RecordConstructor ['gadtrec1a, 'gadtrec1b] }
+                   , constructorFields     = [VarT v1, VarT v2]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = RecordConstructor ['gadtrec1a, 'gadtrec1b] }
 
        validate info
          DatatypeInfo
@@ -219,13 +229,15 @@ equalTest =
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'Equalc
-                   , constructorVars    = []
-                   , constructorContext =
+                   { constructorName       = 'Equalc
+                   , constructorVars       = []
+                   , constructorContext    =
                         [equalPred a c, equalPred b c, classPred ''Read [c], classPred ''Show [c] ]
-                   , constructorFields  =
+                   , constructorFields     =
                         [ListT `AppT` c, ConT ''Maybe `AppT` c]
-                   , constructorVariant = NormalConstructor }
+                   , constructorStrictness =
+                        [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }
                ]
            }
    )
@@ -244,11 +256,12 @@ showableTest =
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'Showable
-                   , constructorVars    = [PlainTV a]
-                   , constructorContext = [classPred ''Show [VarT a]]
-                   , constructorFields  = [VarT a]
-                   , constructorVariant = NormalConstructor }
+                   { constructorName       = 'Showable
+                   , constructorVars       = [PlainTV a]
+                   , constructorContext    = [classPred ''Show [VarT a]]
+                   , constructorFields     = [VarT a]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }
                ]
            }
    )
@@ -264,11 +277,12 @@ recordTest =
            , datatypeVariant = Datatype
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'R1
-                   , constructorVars    = []
-                   , constructorContext = []
-                   , constructorFields  = [ConT ''Int, ConT ''Int]
-                   , constructorVariant = RecordConstructor ['field1, 'field2] }
+                   { constructorName       = 'R1
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Int, ConT ''Int]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = RecordConstructor ['field1, 'field2] }
                ]
            }
    )
@@ -280,11 +294,12 @@ gadt2Test =
            [aSig,bSig] = map (\v -> SigT v starK) vars
            x     = mkName "x"
            con   = ConstructorInfo
-                     { constructorName    = undefined
-                     , constructorVars    = []
-                     , constructorContext = []
-                     , constructorFields  = []
-                     , constructorVariant = NormalConstructor }
+                     { constructorName       = undefined
+                     , constructorVars       = []
+                     , constructorContext    = []
+                     , constructorFields     = []
+                     , constructorStrictness = []
+                     , constructorVariant    = NormalConstructor }
        validate info
          DatatypeInfo
            { datatypeName    = ''Gadt2
@@ -318,6 +333,29 @@ voidstosTest =
            }
   )
 
+strictDemoTest :: IO ()
+strictDemoTest =
+  $(do info <- reifyDatatype ''StrictDemo
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''StrictDemo
+           , datatypeContext = []
+           , datatypeVars    = []
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'StrictDemo
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Int, ConT ''Int, ConT ''Int]
+                   , constructorStrictness = [ notStrictAnnot
+                                             , isStrictAnnot
+                                             , unpackedAnnot
+                                             ]
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+
 #if MIN_VERSION_template_haskell(2,7,0)
 dataFamilyTest :: IO ()
 dataFamilyTest =
@@ -331,11 +369,12 @@ dataFamilyTest =
            , datatypeVariant = DataInstance
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'DFMaybe
-                   , constructorVars    = []
-                   , constructorContext = []
-                   , constructorFields  = [ConT ''Int, ListT `AppT` VarT a]
-                   , constructorVariant = NormalConstructor } ]
+                   { constructorName       = 'DFMaybe
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Int, ListT `AppT` VarT a]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
            }
   )
 
@@ -351,11 +390,12 @@ ghc78bugTest =
            , datatypeVariant = DataInstance
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'DF1
-                   , constructorVars    = []
-                   , constructorContext = []
-                   , constructorFields  = [c]
-                   , constructorVariant = NormalConstructor } ]
+                   { constructorName       = 'DF1
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [c]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
            }
   )
 
@@ -371,11 +411,12 @@ polyTest =
            , datatypeVariant = DataInstance
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'MkPoly
-                   , constructorVars    = []
-                   , constructorContext = []
-                   , constructorFields  = []
-                   , constructorVariant = NormalConstructor } ]
+                   { constructorName       = 'MkPoly
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
            }
   )
 
@@ -393,42 +434,47 @@ gadtFamTest =
            , datatypeVariant = DataInstance
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName    = 'MkGadtFam1
-                   , constructorVars    = []
-                   , constructorContext = []
-                   , constructorFields  = [dTy,cTy]
-                   , constructorVariant = NormalConstructor }
+                   { constructorName       = 'MkGadtFam1
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [dTy,cTy]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }
                , ConstructorInfo
-                   { constructorName    = '(:&&:)
-                   , constructorVars    = [PlainTV e]
-                   , constructorContext = [equalPred cTy (AppT ListT eTy)]
-                   , constructorFields  = [eTy,dTy]
-                   , constructorVariant = InfixConstructor }
+                   { constructorName       = '(:&&:)
+                   , constructorVars       = [PlainTV e]
+                   , constructorContext    = [equalPred cTy (AppT ListT eTy)]
+                   , constructorFields     = [eTy,dTy]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = InfixConstructor }
                , ConstructorInfo
-                   { constructorName    = '(:^^:)
-                   , constructorVars    = []
-                   , constructorContext = [ equalPred cTy (ConT ''Int)
-                                          , equalPred dTy (ConT ''Int)
-                                          ]
-                   , constructorFields  = [ConT ''Int, ConT ''Int]
-                   , constructorVariant = NormalConstructor }
+                   { constructorName       = '(:^^:)
+                   , constructorVars       = []
+                   , constructorContext    = [ equalPred cTy (ConT ''Int)
+                                             , equalPred dTy (ConT ''Int)
+                                             ]
+                   , constructorFields     = [ConT ''Int, ConT ''Int]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }
                , ConstructorInfo
-                   { constructorName    = 'MkGadtFam4
-                   , constructorVars    = []
-                   , constructorContext = [ equalPred cTy dTy
-                                          , equalPred (ConT ''Int) dTy
-                                          ]
-                   , constructorFields  = [dTy]
-                   , constructorVariant = NormalConstructor }
+                   { constructorName       = 'MkGadtFam4
+                   , constructorVars       = []
+                   , constructorContext    = [ equalPred cTy dTy
+                                             , equalPred (ConT ''Int) dTy
+                                             ]
+                   , constructorFields     = [dTy]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }
                , ConstructorInfo
-                   { constructorName    = 'MkGadtFam5
-                   , constructorVars    = [PlainTV q]
-                   , constructorContext = [ equalPred cTy (ConT ''Bool)
-                                          , equalPred dTy (ConT ''Bool)
-                                          , equalPred qTy (ConT ''Char)
-                                          ]
-                   , constructorFields  = [qTy]
-                   , constructorVariant = NormalConstructor } ]
+                   { constructorName       = 'MkGadtFam5
+                   , constructorVars       = [PlainTV q]
+                   , constructorContext    = [ equalPred cTy (ConT ''Bool)
+                                             , equalPred dTy (ConT ''Bool)
+                                             , equalPred qTy (ConT ''Char)
+                                             ]
+                   , constructorFields     = [qTy]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
            }
    )
 #endif
