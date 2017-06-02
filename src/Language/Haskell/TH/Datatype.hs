@@ -26,18 +26,23 @@ Sample output for @'reifyDatatype' ''Maybe@
  , 'datatypeVariant' = 'Datatype'
  , 'datatypeCons'    =
      [ 'ConstructorInfo'
-         { 'constructorName'    = GHC.Base.Nothing
-         , 'constructorVars'    = []
-         , 'constructorContext' = []
-         , 'constructorFields'  = []
-         , 'constructorVariant' = 'NormalConstructor'
+         { 'constructorName'       = GHC.Base.Nothing
+         , 'constructorVars'       = []
+         , 'constructorContext'    = []
+         , 'constructorFields'     = []
+         , 'constructorStrictness' = []
+         , 'constructorVariant'    = 'NormalConstructor'
          }
      , 'ConstructorInfo'
-         { 'constructorName'    = GHC.Base.Just
-         , 'constructorVars'    = []
-         , 'constructorContext' = []
-         , 'constructorFields'  = [ 'VarT' a_3530822107858468866 ]
-         , 'constructorVariant' = 'NormalConstructor'
+         { 'constructorName'       = GHC.Base.Just
+         , 'constructorVars'       = []
+         , 'constructorContext'    = []
+         , 'constructorFields'     = [ 'VarT' a_3530822107858468866 ]
+         , 'constructorStrictness' = [ 'FieldStrictness'
+                                         'UnspecifiedUnpackedness'
+                                         'Lazy'
+                                     ]
+         , 'constructorVariant'    = 'NormalConstructor'
          }
      ]
  }
@@ -54,6 +59,7 @@ module Language.Haskell.TH.Datatype
   , ConstructorInfo(..)
   , DatatypeVariant(..)
   , ConstructorVariant(..)
+  , FieldStrictness(..)
 
   -- * Normalization functions
   , reifyDatatype
@@ -76,6 +82,11 @@ module Language.Haskell.TH.Datatype
   , dataDCompat
   , arrowKCompat
 
+  -- * Strictness annotations
+  , isStrictAnnot
+  , notStrictAnnot
+  , unpackedAnnot
+
   -- * Type simplification
   , resolveTypeSynonyms
   , resolveInfixT
@@ -97,6 +108,9 @@ import           Data.Maybe
 import qualified Data.Traversable as T
 import           Control.Monad (foldM)
 import           Language.Haskell.TH
+#if MIN_VERSION_template_haskell(2,11,0)
+                                     hiding (Extension(..))
+#endif
 import           Language.Haskell.TH.Datatype.Internal
 import           Language.Haskell.TH.Lib (arrowK, starK) -- needed for th-2.4
 
@@ -142,11 +156,14 @@ data DatatypeVariant
 -- | Normalized information about constructors associated with newtypes and
 -- data types.
 data ConstructorInfo = ConstructorInfo
-  { constructorName    :: Name               -- ^ Constructor name
-  , constructorVars    :: [TyVarBndr]        -- ^ Constructor type parameters
-  , constructorContext :: Cxt                -- ^ Constructor constraints
-  , constructorFields  :: [Type]             -- ^ Constructor fields
-  , constructorVariant :: ConstructorVariant -- ^ Extra information
+  { constructorName       :: Name               -- ^ Constructor name
+  , constructorVars       :: [TyVarBndr]        -- ^ Constructor type parameters
+  , constructorContext    :: Cxt                -- ^ Constructor constraints
+  , constructorFields     :: [Type]             -- ^ Constructor fields
+  , constructorStrictness :: [FieldStrictness]  -- ^ Constructor fields' strictness
+                                                --   (Invariant: has the same length
+                                                --   as constructorFields)
+  , constructorVariant    :: ConstructorVariant -- ^ Extra information
   }
   deriving (Show, Eq, Typeable, Data
 #ifdef HAS_GENERICS
@@ -166,6 +183,65 @@ data ConstructorVariant
 #endif
            )
 
+-- | Normalized information about a constructor field's @UNPACK@ and
+-- strictness annotations.
+--
+-- Note that the interface for reifying strictness in Template Haskell changed
+-- considerably in GHC 8.0. The presentation in this library mirrors that which
+-- can be found in GHC 8.0 or later, whereas previously, unpackedness and
+-- strictness were represented with a single data type:
+--
+-- @
+-- data Strict
+--   = IsStrict
+--   | NotStrict
+--   | Unpacked -- On GHC 7.4 or later
+-- @
+--
+-- For backwards compatibility, we retrofit these constructors onto the
+-- following three values, respectively:
+--
+-- @
+-- 'isStrictAnnot'  = 'FieldStrictness' 'UnspecifiedUnpackedness' 'Strict'
+-- 'notStrictAnnot' = 'FieldStrictness' 'UnspecifiedUnpackedness' 'UnspecifiedStrictness'
+-- 'unpackedAnnot'  = 'FieldStrictness' 'Unpack' 'Strict'
+-- @
+data FieldStrictness = FieldStrictness
+  { fieldUnpackedness :: Unpackedness
+  , fieldStrictness   :: Strictness
+  }
+  deriving (Show, Eq, Ord, Typeable, Data
+#ifdef HAS_GENERICS
+           ,Generic
+#endif
+           )
+
+-- | Information about a constructor field's unpackedness annotation.
+data Unpackedness
+  = UnspecifiedUnpackedness -- ^ No annotation whatsoever
+  | NoUnpack                -- ^ Annotated with @{\-\# NOUNPACK \#-\}@
+  | Unpack                  -- ^ Annotated with @{\-\# UNPACK \#-\}@
+  deriving (Show, Eq, Ord, Typeable, Data
+#ifdef HAS_GENERICS
+           ,Generic
+#endif
+           )
+
+-- | Information about a constructor field's strictness annotation.
+data Strictness
+  = UnspecifiedStrictness -- ^ No annotation whatsoever
+  | Lazy                  -- ^ Annotated with @~@
+  | Strict                -- ^ Annotated with @!@
+  deriving (Show, Eq, Ord, Typeable, Data
+#ifdef HAS_GENERICS
+           ,Generic
+#endif
+           )
+
+isStrictAnnot, notStrictAnnot, unpackedAnnot :: FieldStrictness
+isStrictAnnot  = FieldStrictness UnspecifiedUnpackedness Strict
+notStrictAnnot = FieldStrictness UnspecifiedUnpackedness UnspecifiedStrictness
+unpackedAnnot  = FieldStrictness Unpack Strict
 
 -- | Construct a Type using the datatype's type constructor and type
 -- parameters. Kind signatures are removed.
@@ -471,27 +547,33 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
               go tyvars context gadt c =
                 case c of
                   NormalC n xs -> do
-                    let ts = map snd xs
+                    let (bangs, ts) = unzip xs
+                        stricts     = map normalizeStrictness bangs
                     fi <- if gadt
                              then checkGadtFixity ts n
                              else return NormalConstructor
-                    return [ConstructorInfo n tyvars context ts fi]
+                    return [ConstructorInfo n tyvars context ts stricts fi]
                   InfixC l n r ->
-                    return [ConstructorInfo n tyvars context [snd l,snd r]
+                    let (bangs, ts) = unzip [l,r]
+                        stricts     = map normalizeStrictness bangs in
+                    return [ConstructorInfo n tyvars context ts stricts
                                             InfixConstructor]
                   RecC n xs ->
-                    let fns = takeFieldNames xs in
+                    let fns     = takeFieldNames xs
+                        stricts = takeFieldStrictness xs in
                     return [ConstructorInfo n tyvars context
-                              (takeFieldTypes xs) (RecordConstructor fns)]
+                              (takeFieldTypes xs) stricts (RecordConstructor fns)]
                   ForallC tyvars' context' c' ->
                     go (tyvars'++tyvars) (context'++context) True c'
 #if MIN_VERSION_template_haskell(2,11,0)
                   GadtC ns xs innerType ->
-                    let ts = map snd xs in
-                    gadtCase ns innerType ts (checkGadtFixity ts)
+                    let (bangs, ts) = unzip xs
+                        stricts     = map normalizeStrictness bangs in
+                    gadtCase ns innerType ts stricts (checkGadtFixity ts)
                   RecGadtC ns xs innerType ->
-                    let fns = takeFieldNames xs in
-                    gadtCase ns innerType (takeFieldTypes xs)
+                    let fns     = takeFieldNames xs
+                        stricts = takeFieldStrictness xs in
+                    gadtCase ns innerType (takeFieldTypes xs) stricts
                              (const $ return $ RecordConstructor fns)
                 where
                   gadtCase = normalizeGadtC typename params tyvars context
@@ -502,18 +584,23 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
             where
               go tyvars c =
                 case c of
-                  NormalC n _ ->
-                    dataFamCase' n tyvars NormalConstructor
-                  InfixC _ n _ ->
-                    dataFamCase' n tyvars InfixConstructor
+                  NormalC n xs ->
+                    let stricts = map (normalizeStrictness . fst) xs in
+                    dataFamCase' n tyvars stricts NormalConstructor
+                  InfixC l n r ->
+                    let stricts = map (normalizeStrictness . fst) [l,r] in
+                    dataFamCase' n tyvars stricts InfixConstructor
                   RecC n xs ->
-                    dataFamCase' n tyvars (RecordConstructor (takeFieldNames xs))
+                    let stricts = takeFieldStrictness xs in
+                    dataFamCase' n tyvars stricts
+                                 (RecordConstructor (takeFieldNames xs))
                   ForallC tyvars' context' c' ->
                     go (tyvars'++tyvars) c'
 
-          dataFamCase' :: Name -> [TyVarBndr] -> ConstructorVariant
+          dataFamCase' :: Name -> [TyVarBndr] -> [FieldStrictness]
+                       -> ConstructorVariant
                        -> Q [ConstructorInfo]
-          dataFamCase' n tyvars variant = do
+          dataFamCase' n tyvars stricts variant = do
             info <- reify n
             case info of
               DataConI _ ty _ _ -> do
@@ -530,21 +617,8 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                 -- place of the eta-reduced variables (in normalizeDec)
                 -- much easier.
                 normalizeGadtC typename params tyvars context [n]
-                               returnTy' argTys (const $ return variant)
+                               returnTy' argTys stricts (const $ return variant)
               _ -> fail "normalizeCon: impossible"
-
-          {-
-          isRawVar :: Type -> Bool
-          isRawVar VarT{}     = True
-          isRawVar (SigT t _) = isRawVar t
-          isRawVar _          = False
-
-          -- Count the number of times a predicate is true
-          count :: (a -> Bool) -> [a] -> Int
-          count _ [] = 0
-          count p (x:xs) | p x       = 1 + count p xs
-                         | otherwise = count p xs
-          -}
 
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
@@ -558,19 +632,45 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
       in defaultCase
 #endif
 
+#if MIN_VERSION_template_haskell(2,11,0)
+normalizeStrictness :: Bang -> FieldStrictness
+normalizeStrictness (Bang upk str) =
+  FieldStrictness (normalizeSourceUnpackedness upk)
+                  (normalizeSourceStrictness str)
+  where
+    normalizeSourceUnpackedness :: SourceUnpackedness -> Unpackedness
+    normalizeSourceUnpackedness NoSourceUnpackedness = UnspecifiedUnpackedness
+    normalizeSourceUnpackedness SourceNoUnpack       = NoUnpack
+    normalizeSourceUnpackedness SourceUnpack         = Unpack
+
+    normalizeSourceStrictness :: SourceStrictness -> Strictness
+    normalizeSourceStrictness NoSourceStrictness = UnspecifiedStrictness
+    normalizeSourceStrictness SourceLazy         = Lazy
+    normalizeSourceStrictness SourceStrict       = Strict
+#else
+normalizeStrictness :: Strict -> FieldStrictness
+normalizeStrictness IsStrict  = isStrictAnnot
+normalizeStrictness NotStrict = notStrictAnnot
+# if MIN_VERSION_template_haskell(2,7,0)
+normalizeStrictness Unpacked  = unpackedAnnot
+# endif
+#endif
+
 normalizeGadtC ::
-  Name        {- ^ Type constructor             -} ->
-  [Type]      {- ^ Type parameters              -} ->
-  [TyVarBndr] {- ^ Constructor parameters       -} ->
-  Cxt         {- ^ Constructor context          -} ->
-  [Name]      {- ^ Constructor names            -} ->
-  Type        {- ^ Declared type of constructor -} ->
-  [Type]      {- ^ Constructor field types      -} ->
+  Name              {- ^ Type constructor             -} ->
+  [Type]            {- ^ Type parameters              -} ->
+  [TyVarBndr]       {- ^ Constructor parameters       -} ->
+  Cxt               {- ^ Constructor context          -} ->
+  [Name]            {- ^ Constructor names            -} ->
+  Type              {- ^ Declared type of constructor -} ->
+  [Type]            {- ^ Constructor field types      -} ->
+  [FieldStrictness] {- ^ Constructor field strictness -} ->
   (Name -> Q ConstructorVariant)
-              {- ^ Determine a constructor variant
-                   from its 'Name' -}              ->
+                    {- ^ Determine a constructor variant
+                         from its 'Name' -}              ->
   Q [ConstructorInfo]
-normalizeGadtC typename params tyvars context names innerType fields getVariant =
+normalizeGadtC typename params tyvars context names innerType
+               fields stricts getVariant =
   do innerType' <- resolveTypeSynonyms innerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
@@ -581,7 +681,8 @@ normalizeGadtC typename params tyvars context names innerType fields getVariant 
 
              context2 = applySubstitution subst (context1 ++ context)
              fields'  = applySubstitution subst fields
-         in sequence [ ConstructorInfo name tyvars' context2 fields' <$> variantQ
+         in sequence [ ConstructorInfo name tyvars' context2
+                                       fields' stricts <$> variantQ
                      | name <- names
                      , let variantQ = getVariant name
                      ]
@@ -751,6 +852,13 @@ tvName (KindedTV name _) = name
 
 takeFieldNames :: [(Name,a,b)] -> [Name]
 takeFieldNames xs = [a | (a,_,_) <- xs]
+
+#if MIN_VERSION_template_haskell(2,11,0)
+takeFieldStrictness :: [(a,Bang,b)]   -> [FieldStrictness]
+#else
+takeFieldStrictness :: [(a,Strict,b)] -> [FieldStrictness]
+#endif
+takeFieldStrictness xs = [normalizeStrictness a | (_,a,_) <- xs]
 
 takeFieldTypes :: [(a,b,Type)] -> [Type]
 takeFieldTypes xs = [a | (_,_,a) <- xs]

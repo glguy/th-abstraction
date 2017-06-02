@@ -56,8 +56,8 @@ equateCxt lbl pred1 pred2 =
 -- otherwise return a string exlaining the mismatch.
 equateCI :: ConstructorInfo -> ConstructorInfo -> Either String ()
 equateCI con1 con2 =
-  do check "constructorName"     constructorName    con1 con2
-     check "constructorVariant"  constructorVariant con1 con2
+  do check "constructorName"       constructorName       con1 con2
+     check "constructorVariant"    constructorVariant    con1 con2
 
      let sub = Map.fromList (zip (map tvName (constructorVars con2))
                                  (map VarT (map tvName (constructorVars con1))))
@@ -69,6 +69,25 @@ equateCI con1 con2 =
      check "constructorFields" id
         (constructorFields con1)
         (applySubstitution sub (constructorFields con2))
+
+     zipWithM_ equateStrictness
+        (constructorStrictness con1)
+        (constructorStrictness con2)
+
+equateStrictness :: FieldStrictness -> FieldStrictness -> Either String ()
+equateStrictness fs1 fs2 =
+  check "constructorStrictness" oldGhcHack fs1 fs2
+  where
+#if MIN_VERSION_template_haskell(2,7,0)
+    oldGhcHack = id
+#else
+    -- GHC 7.0 and 7.2 didn't have an Unpacked TH constructor, so as a
+    -- simple workaround, we will treat unpackedAnnot as isStrictAnnot
+    -- (the closest equivalent).
+    oldGhcHack fs
+      | fs == unpackedAnnot = isStrictAnnot
+      | otherwise           = fs
+#endif
 
 check :: (Show b, Eq b) => String -> (a -> b) -> a -> a -> Either String ()
 check lbl f x y
