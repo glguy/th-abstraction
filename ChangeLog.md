@@ -1,8 +1,12 @@
 # Revision history for th-abstraction
 
-## next
+## 0.2.0.0 -- 2017-06-03
 
 * Added `reifyFixityCompat`
+* Added `constructorStrictness` field to `ConstructorInfo`
+* Infer more kind signatures when missing on old GHCs
+* Added parameter to `normalizeCon`
+* Support GHC back to 7.0.4
 
 ## 0.1.3.0 -- 2017-05-27
 
