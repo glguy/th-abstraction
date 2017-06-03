@@ -109,7 +109,7 @@ import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
 import qualified Data.Traversable as T
-import           Control.Monad (foldM)
+import           Control.Monad
 import           Language.Haskell.TH
 #if MIN_VERSION_template_haskell(2,11,0)
                                      hiding (Extension(..))
@@ -1147,11 +1147,16 @@ arrowKCompat = arrowK
 
 -- | Backwards compatibility wrapper for 'Fixity' lookup.
 --
+-- In @template-haskell-2.11.0.0@ and later, the answer will always
+-- be 'Just' of a fixity.
+--
 -- Before @template-haskell-2.11.0.0@ it was only possible to determine
 -- fixity information for variables, class methods, and data constructors.
+-- In this case for type operators the answer could be 'Nothing', which
+-- indicates that the answer is unavailable.
 reifyFixityCompat :: Name -> Q (Maybe Fixity)
 #if MIN_VERSION_template_haskell(2,11,0)
-reifyFixityCompat = reifyFixity
+reifyFixityCompat n = (`mplus` Just defaultFixity) <$> reifyFixity n
 #else
 reifyFixityCompat n =
   do info <- reify n
