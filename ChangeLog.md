@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next
+
+* Added `reifyFixityCompat`
+
 ## 0.1.3.0 -- 2017-05-27
 
 * Added `resolveInfixT` which uses reified fixity information to resolve `UInfixT`
