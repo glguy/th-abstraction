@@ -108,6 +108,7 @@ main =
      polyTest
      gadtFamTest
 #endif
+     fixityLookupTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -478,3 +479,8 @@ gadtFamTest =
            }
    )
 #endif
+
+fixityLookupTest :: IO ()
+fixityLookupTest =
+  $(do Just (Fixity 6 InfixR) <- reifyFixityCompat '(:**:)
+       [| return () |])

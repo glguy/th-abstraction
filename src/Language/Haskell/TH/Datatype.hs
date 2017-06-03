@@ -91,12 +91,15 @@ module Language.Haskell.TH.Datatype
   , resolveTypeSynonyms
   , resolveInfixT
 
+  -- * Fixities
+  , reifyFixityCompat
+  , showFixity
+  , showFixityDirection
+
   -- * Convenience functions
   , unifyTypes
   , tvName
   , datatypeType
-  , showFixity
-  , showFixityDirection
   ) where
 
 import           Data.Data (Typeable, Data)
@@ -1138,4 +1141,23 @@ arrowKCompat :: Kind -> Kind -> Kind
 arrowKCompat x y = arrowK `appK` x `appK` y
 #else
 arrowKCompat = arrowK
+#endif
+
+------------------------------------------------------------------------
+
+-- | Backwards compatibility wrapper for 'Fixity' lookup.
+--
+-- Before @template-haskell-2.11.0.0@ it was only possible to determine
+-- fixity information for variables, class methods, and data constructors.
+reifyFixityCompat :: Name -> Q (Maybe Fixity)
+#if MIN_VERSION_template_haskell(2,11,0)
+reifyFixityCompat = reifyFixity
+#else
+reifyFixityCompat n =
+  do info <- reify n
+     return $! case info of
+       ClassOpI _ _ _ fixity -> Just fixity
+       DataConI _ _ _ fixity -> Just fixity
+       VarI     _ _ _ fixity -> Just fixity
+       _                     -> Nothing
 #endif
