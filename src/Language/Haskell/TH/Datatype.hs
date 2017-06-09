@@ -631,12 +631,16 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
           -- splices (see ##22).
           mightHaveBeenEtaReduced :: [Type] -> Bool
           mightHaveBeenEtaReduced [] = False
-          mightHaveBeenEtaReduced ts = isVarT (last ts)
+          mightHaveBeenEtaReduced ts =
+            case varTName (last ts) of
+              Nothing -> False
+              Just n  -> not (n `elem` freeVariables ts)
 
-          isVarT :: Type -> Bool
-          isVarT (SigT t _) = isVarT t
-          isVarT (VarT _)   = True
-          isVarT _          = False
+          -- If a Type is a VarT, find Just its Name. Otherwise, return Nothing.
+          varTName :: Type -> Maybe
+          varTName (SigT t _) = isVarT t
+          varTName (VarT n)   = Just n
+          varTName _          = Nothing
 
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that

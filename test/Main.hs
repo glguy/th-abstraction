@@ -86,7 +86,8 @@ data instance GadtFam c d where
   MkGadtFam5 :: (q ~ Char) => q -> GadtFam Bool Bool
 infixl 3 :&&:
 
-data family GadtLocalDec a
+data family FamLocalDec1 a
+data family FamLocalDec2 a b c
 #endif
 
 return [] -- segment type declarations above from refiy below
@@ -108,7 +109,8 @@ main =
      ghc78bugTest
      polyTest
      gadtFamTest
-     gadtDecTest
+     famLocalDecTest1
+     famLocalDecTest2
 #endif
      fixityLookupTest
 
@@ -481,24 +483,47 @@ gadtFamTest =
            }
    )
 
-gadtDecTest :: IO ()
-gadtDecTest =
-  $(do [dec] <- [d| data instance GadtLocalDec Int = GadtLocalDecInt { mochi :: Double } |]
+famLocalDecTest1 :: IO ()
+famLocalDecTest1 =
+  $(do [dec] <- [d| data instance FamLocalDec1 Int = FamLocalDec1Int { mochi :: Double } |]
        info <- normalizeDec dec
        validate info
          DatatypeInfo
-           { datatypeName    = ''GadtLocalDec
+           { datatypeName    = ''FamLocalDec1
            , datatypeContext = []
            , datatypeVars    = [ConT ''Int]
            , datatypeVariant = DataInstance
            , datatypeCons    =
                [ ConstructorInfo
-                   { constructorName       = mkName "GadtLocalDecInt"
+                   { constructorName       = mkName "FamLocalDec1Int"
                    , constructorVars       = []
                    , constructorContext    = []
                    , constructorFields     = [ConT ''Double]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = RecordConstructor [mkName "mochi"] }]
+           }
+   )
+
+famLocalDecTest2 :: IO ()
+famLocalDecTest2 =
+  $(do [dec] <- [d| data instance FamLocalDec2 Int (a, b) a = FamLocalDec2Int { fm0 :: (b, a), fm1 :: Int } |]
+       info <- normalizeDec dec
+       let tys@[a,b]   = map (VarT . mkName) ["a", "b"]
+           [aSig,bSig] = map (\v -> SigT v starK) tys
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''FamLocalDec2
+           , datatypeContext = []
+           , datatypeVars    = [ConT ''Int, TupleT 2 `AppT` a `AppT` b, aSig]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = mkName "FamLocalDec2Int"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [TupleT 2 `AppT` b `AppT` a, ConT ''Int]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = RecordConstructor [mkName "fm0", mkName "fm1"] }]
            }
    )
 #endif
