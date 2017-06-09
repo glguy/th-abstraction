@@ -623,14 +623,32 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                                returnTy' argTys stricts (const $ return variant)
               _ -> fail "normalizeCon: impossible"
 
+          -- A very ad hoc way of determining if we need to perform some extra passes
+          -- to repair an eta-reduction bug for data family instances that only occurs
+          -- with GHC 7.6 and 7.8. We want to avoid doing these passes if at all possible,
+          -- since they require reifying extra information, and reifying during
+          -- normalization can be problematic for locally declared Template Haskell
+          -- splices (see ##22).
+          mightHaveBeenEtaReduced :: [Type] -> Bool
+          mightHaveBeenEtaReduced [] = False
+          mightHaveBeenEtaReduced ts = isVarT (last ts)
+
+          isVarT :: Type -> Bool
+          isVarT (SigT t _) = isVarT t
+          isVarT (VarT _)   = True
+          isVarT _          = False
+
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
            -- needs to be performed to work around an old bug that eta-reduces the
            -- type patterns of data families.
-           DataInstance    -> dataFamCompatCase
-           NewtypeInstance -> dataFamCompatCase
-           Datatype        -> defaultCase
-           Newtype         -> defaultCase
+           DataInstance
+             | mightHaveBeenEtaReduced params
+             -> dataFamCompatCase
+           NewtypeInstance
+             | mightHaveBeenEtaReduced params
+             -> dataFamCompatCase
+           _ -> defaultCase
 #else
       in defaultCase
 #endif

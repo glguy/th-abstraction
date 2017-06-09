@@ -86,6 +86,7 @@ data instance GadtFam c d where
   MkGadtFam5 :: (q ~ Char) => q -> GadtFam Bool Bool
 infixl 3 :&&:
 
+data family GadtLocalDec a
 #endif
 
 return [] -- segment type declarations above from refiy below
@@ -107,6 +108,7 @@ main =
      ghc78bugTest
      polyTest
      gadtFamTest
+     gadtDecTest
 #endif
      fixityLookupTest
 
@@ -476,6 +478,27 @@ gadtFamTest =
                    , constructorFields     = [qTy]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor } ]
+           }
+   )
+
+gadtDecTest :: IO ()
+gadtDecTest =
+  $(do [dec] <- [d| data instance GadtLocalDec Int = GadtLocalDecInt { mochi :: Double } |]
+       info <- normalizeDec dec
+       validate info
+         DatatypeInfo
+           { datatypeName    = ''GadtLocalDec
+           , datatypeContext = []
+           , datatypeVars    = [ConT ''Int]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = mkName "GadtLocalDecInt"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Double]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = RecordConstructor [mkName "mochi"] }]
            }
    )
 #endif
