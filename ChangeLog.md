@@ -1,5 +1,11 @@
 # Revision history for th-abstraction
 
+## 0.2.1.0 -- 2017-06-09
+
+* Add sensible reify defaults and error messages when we
+  can't backport fixes to old GHC Template Haskell output
+  due to hand-written Decs being processed.
+
 ## 0.2.0.0 -- 2017-06-03
 
 * Added `reifyFixityCompat`
