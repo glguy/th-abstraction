@@ -623,14 +623,45 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                                returnTy' argTys stricts (const $ return variant)
               _ -> fail "normalizeCon: impossible"
 
+          -- A very ad hoc way of determining if we need to perform some extra passes
+          -- to repair an eta-reduction bug for data family instances that only occurs
+          -- with GHC 7.6 and 7.8. We want to avoid doing these passes if at all possible,
+          -- since they require reifying extra information, and reifying during
+          -- normalization can be problematic for locally declared Template Haskell
+          -- splices (see ##22).
+          mightHaveBeenEtaReduced :: [Type] -> Bool
+          mightHaveBeenEtaReduced ts =
+            case unsnoc ts of
+              Nothing -> False
+              Just (initTs,lastT) ->
+                case varTName lastT of
+                  Nothing -> False
+                  Just n  -> not (n `elem` freeVariables initTs)
+
+          -- If the list is empty returns 'Nothing', otherwise returns the 'init' and the 'last'.
+          unsnoc :: [a] -> Maybe ([a], a)
+          unsnoc [] = Nothing
+          unsnoc [x] = Just ([], x)
+          unsnoc (x:xs) = Just (x:a, b)
+              where Just (a,b) = unsnoc xs
+
+          -- If a Type is a VarT, find Just its Name. Otherwise, return Nothing.
+          varTName :: Type -> Maybe Name
+          varTName (SigT t _) = varTName t
+          varTName (VarT n)   = Just n
+          varTName _          = Nothing
+
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
            -- needs to be performed to work around an old bug that eta-reduces the
            -- type patterns of data families.
-           DataInstance    -> dataFamCompatCase
-           NewtypeInstance -> dataFamCompatCase
-           Datatype        -> defaultCase
-           Newtype         -> defaultCase
+           DataInstance
+             | mightHaveBeenEtaReduced params
+             -> dataFamCompatCase
+           NewtypeInstance
+             | mightHaveBeenEtaReduced params
+             -> dataFamCompatCase
+           _ -> defaultCase
 #else
       in defaultCase
 #endif

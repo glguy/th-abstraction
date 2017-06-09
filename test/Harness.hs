@@ -12,7 +12,11 @@ that the computed 'DatatypeInfo' values match the expected ones
 up to alpha renaming.
 
 -}
-module Harness (validate, varKCompat) where
+module Harness
+  ( validate
+  , equateDI
+  , varKCompat
+  ) where
 
 import           Control.Monad
 import qualified Data.Map as Map
@@ -27,10 +31,10 @@ validate x y = either fail (\_ -> [| return () |]) (equateDI x y)
 -- otherwise return a string exlaining the mismatch.
 equateDI :: DatatypeInfo -> DatatypeInfo -> Either String ()
 equateDI dat1 dat2 =
-  do check "datatypeName"     datatypeName            dat1 dat2
-     check "datatypeVars len" (length . datatypeVars) dat1 dat2
-     check "datatypeVariant"  datatypeVariant         dat1 dat2
-     check "datatypeCons len" (length . datatypeCons) dat1 dat2
+  do check "datatypeName"     (nameBase . datatypeName) dat1 dat2
+     check "datatypeVars len" (length . datatypeVars)   dat1 dat2
+     check "datatypeVariant"  datatypeVariant           dat1 dat2
+     check "datatypeCons len" (length . datatypeCons)   dat1 dat2
 
      let sub = Map.fromList (zip (freeVariables (datatypeVars dat2))
                                  (map VarT (freeVariables (datatypeVars dat1))))
@@ -56,8 +60,8 @@ equateCxt lbl pred1 pred2 =
 -- otherwise return a string exlaining the mismatch.
 equateCI :: ConstructorInfo -> ConstructorInfo -> Either String ()
 equateCI con1 con2 =
-  do check "constructorName"       constructorName       con1 con2
-     check "constructorVariant"    constructorVariant    con1 con2
+  do check "constructorName"       (nameBase . constructorName) con1 con2
+     check "constructorVariant"    constructorVariantBase       con1 con2
 
      let sub = Map.fromList (zip (map tvName (constructorVars con2))
                                  (map VarT (map tvName (constructorVars con1))))
@@ -73,6 +77,13 @@ equateCI con1 con2 =
      zipWithM_ equateStrictness
         (constructorStrictness con1)
         (constructorStrictness con2)
+  where
+    constructorVariantBase :: ConstructorInfo -> ConstructorVariant
+    constructorVariantBase con =
+      case constructorVariant con of
+        NormalConstructor        -> NormalConstructor
+        i@InfixConstructor{}     -> i
+        RecordConstructor fields -> RecordConstructor $ map (mkName . nameBase) fields
 
 equateStrictness :: FieldStrictness -> FieldStrictness -> Either String ()
 equateStrictness fs1 fs2 =
