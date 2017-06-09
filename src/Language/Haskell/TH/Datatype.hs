@@ -630,15 +630,24 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
           -- normalization can be problematic for locally declared Template Haskell
           -- splices (see ##22).
           mightHaveBeenEtaReduced :: [Type] -> Bool
-          mightHaveBeenEtaReduced [] = False
           mightHaveBeenEtaReduced ts =
-            case varTName (last ts) of
+            case unsnoc ts of
               Nothing -> False
-              Just n  -> not (n `elem` freeVariables ts)
+              Just (initTs,lastT) ->
+                case varTName lastT of
+                  Nothing -> False
+                  Just n  -> not (n `elem` freeVariables initTs)
+
+          -- If the list is empty returns 'Nothing', otherwise returns the 'init' and the 'last'.
+          unsnoc :: [a] -> Maybe ([a], a)
+          unsnoc [] = Nothing
+          unsnoc [x] = Just ([], x)
+          unsnoc (x:xs) = Just (x:a, b)
+              where Just (a,b) = unsnoc xs
 
           -- If a Type is a VarT, find Just its Name. Otherwise, return Nothing.
-          varTName :: Type -> Maybe
-          varTName (SigT t _) = isVarT t
+          varTName :: Type -> Maybe Name
+          varTName (SigT t _) = varTName t
           varTName (VarT n)   = Just n
           varTName _          = Nothing
 
