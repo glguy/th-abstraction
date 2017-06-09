@@ -711,6 +711,22 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
 
     aux _ sc = sc
 
+    -- Be careful not to use equalPred on GHC 8 or later! Why? Because you can
+    -- have GADTs that introduce kind equalities, e.g.,
+    --
+    --  data T :: k -> * where T :: T Int
+    --
+    -- If you use equalPred here to equate the type parameter with Int, you end
+    -- up with (a :: k) ~ (Int :: *), which is wrong, as the two types are of
+    -- different kinds. The solution is to use heterogenous equality instead
+    -- so that you have (a :: k) ~~ (Int :: *), which is kind-correct.
+    hequalPred :: Type -> Type -> Pred
+#if MIN_VERSION_base(4,9,0)
+    hequalPred x y = AppT (AppT (ConT heqTypeName) x) y
+#else
+    hequalPred = equalPred
+#endif
+
 -- | Expand all of the type synonyms in a type.
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
@@ -1007,7 +1023,7 @@ unify' (TupleT n) (TupleT m) | n == m = pure Map.empty
 unify' t u = Left (t,u)
 
 
--- | Construct an equality constraint. The implementation of 'Pred' varies
+-- | Construct a homogeneous equality constraint. The implementation of 'Pred' varies
 -- across versions of Template Haskell.
 equalPred :: Type -> Type -> Pred
 equalPred x y =
@@ -1028,16 +1044,17 @@ classPred =
 #endif
 
 
--- | Match a 'Pred' representing an equality constraint. Returns
--- arguments to the equality constraint if successful.
+-- | Match a 'Pred' representing an equality constraint (homogenoues or
+-- heterogeneous). Returns arguments to the equality constraint if successful.
 asEqualPred :: Pred -> Maybe (Type,Type)
 #if MIN_VERSION_template_haskell(2,10,0)
-asEqualPred (EqualityT `AppT` x `AppT` y)                    = Just (x,y)
-asEqualPred (ConT eq   `AppT` x `AppT` y) | eq == eqTypeName = Just (x,y)
+asEqualPred (EqualityT `AppT` x `AppT` y) = Just (x,y)
+asEqualPred (ConT eq   `AppT` x `AppT` y)
+  | eq == eqTypeName || eq == heqTypeName = Just (x,y)
 #else
-asEqualPred (EqualP            x        y)                   = Just (x,y)
+asEqualPred (EqualP           x        y) = Just (x,y)
 #endif
-asEqualPred _                                                = Nothing
+asEqualPred _                             = Nothing
 
 -- | Match a 'Pred' representing a class constraint.
 -- Returns the classname and parameters if successful.
@@ -1045,8 +1062,9 @@ asClassPred :: Pred -> Maybe (Name, [Type])
 #if MIN_VERSION_template_haskell(2,10,0)
 asClassPred t =
   case decomposeType t of
-    ConT f :| xs | f /= eqTypeName -> Just (f,xs)
-    _                              -> Nothing
+    ConT f :| xs
+      | f /= eqTypeName && f /= heqTypeName -> Just (f,xs)
+    _                                       -> Nothing
 #else
 asClassPred (ClassP f xs) = Just (f,xs)
 asClassPred _             = Nothing
