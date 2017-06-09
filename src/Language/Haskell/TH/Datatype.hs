@@ -413,6 +413,19 @@ stealKindForType _   t        = t
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
+--
+-- Beware: 'normalizeDec' can have surprising behavior when it comes to fixity.
+-- For instance, if you have this quasiquoted data declaration:
+--
+-- [d| infix 5 :^^:
+--     data Foo where
+--       (:^^:) :: Int -> Int -> Foo |]
+--
+-- Then if you pass the 'Dec' for @Foo@ to 'normalizeDec' without splicing it
+-- in a previous Template Haskell splice, then @(:^^:) will be labeled a 'NormalConstructor'
+-- instead of an 'InfixConstructor'. This is because Template Haskell has no way to
+-- reify the fixity declaration for @(:^^:)@, so it must assume there isn't one. To
+-- work around this behavior, use 'reifyDatatype' instead.
 normalizeDec :: Dec -> Q DatatypeInfo
 #if MIN_VERSION_template_haskell(2,12,0)
 normalizeDec (NewtypeD context name tyvars _kind con _derives) =
@@ -504,7 +517,9 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
     checkGadtFixity :: [Type] -> Name -> Q ConstructorVariant
     checkGadtFixity ts n = do
 #if MIN_VERSION_template_haskell(2,11,0)
-      mbFi <- reifyFixity n
+      -- Don't call reifyFixityCompat here! We need to be able to distinguish
+      -- between a default fixity and an explicit @infixl 9@.
+      mbFi <- return Nothing `recover` reifyFixity n
       let userSuppliedFixity = isJust mbFi
 #else
       -- On old GHCs, there is a bug where infix GADT constructors will
@@ -521,8 +536,8 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
       -- there is no way to distinguish between a user-supplied fixity of
       -- infixl 9 and the fixity that GHC defaults to, so we cannot properly
       -- handle that case.
-      DataConI _ _ _ fi <- reify n
-      let userSuppliedFixity = fi /= defaultFixity
+      mbFi <- reifyFixityCompat n
+      let userSuppliedFixity = isJust mbFi && mbFi /= Just defaultFixity
 #endif
       return $ if isInfixDataCon (nameBase n)
                   && length ts == 2
@@ -604,7 +619,14 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
                        -> ConstructorVariant
                        -> Q [ConstructorInfo]
           dataFamCase' n tyvars stricts variant = do
-            info <- reify n
+            info <- reifyRecover n $ fail $ unlines
+                      [ "normalizeCon: Cannot reify constructor " ++ nameBase n
+                      , "You are likely calling normalizeDec on GHC 7.6 or 7.8 on a data family"
+                      , "whose type variables have been eta-reduced due to GHC Trac #9692."
+                      , "Unfortunately, without being able to reify the constructor's type,"
+                      , "there is no way to recover the eta-reduced type variables in general."
+                      , "A recommended workaround is to use reifyDatatype instead."
+                      ]
             case info of
               DataConI _ ty _ _ -> do
                 let (context, argTys :|- returnTy) = uncurryType ty
@@ -751,7 +773,8 @@ resolveTypeSynonyms t =
 
   case f of
     ConT n ->
-      do info <- reify n
+      do info <- reifyRecover n $ fail
+                   "resolveTypeSynonyms: Cannot reify type synonym information"
          case info of
            TyConI (TySynD _ synvars def) ->
              let argNames    = map tvName synvars
@@ -824,7 +847,7 @@ resolveInfixT1 = go []
     go :: [(Type,Name,Fixity)] -> InfixList -> TypeQ
     go ts (ILNil u) = return (foldl (\acc (l,o,_) -> ConT o `AppT` l `AppT` acc) u ts)
     go ts (ILCons l o r) =
-      do ofx <- fromMaybe defaultFixity <$> reifyFixity o
+      do ofx <- fromMaybe defaultFixity <$> reifyFixityCompat o
          let push = go ((l,o,ofx):ts) r
          case ts of
            (l1,o1,o1fx):ts' ->
@@ -1187,9 +1210,9 @@ arrowKCompat = arrowK
 -- indicates that the answer is unavailable.
 reifyFixityCompat :: Name -> Q (Maybe Fixity)
 #if MIN_VERSION_template_haskell(2,11,0)
-reifyFixityCompat n = (`mplus` Just defaultFixity) <$> reifyFixity n
+reifyFixityCompat n = recover (return Nothing) ((`mplus` Just defaultFixity) <$> reifyFixity n)
 #else
-reifyFixityCompat n =
+reifyFixityCompat n = recover (return Nothing) $
   do info <- reify n
      return $! case info of
        ClassOpI _ _ _ fixity -> Just fixity
@@ -1197,3 +1220,10 @@ reifyFixityCompat n =
        VarI     _ _ _ fixity -> Just fixity
        _                     -> Nothing
 #endif
+
+-- | Call 'reify' with an action to take if reification fails.
+reifyRecover ::
+  Name ->
+  Q Info {- ^ handle failure -} ->
+  Q Info
+reifyRecover n failure = failure `recover` reify n
