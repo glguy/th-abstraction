@@ -1044,7 +1044,7 @@ classPred =
 #endif
 
 
--- | Match a 'Pred' representing an equality constraint (homogenoues or
+-- | Match a 'Pred' representing an equality constraint (homogeneous or
 -- heterogeneous). Returns arguments to the equality constraint if successful.
 asEqualPred :: Pred -> Maybe (Type,Type)
 #if MIN_VERSION_template_haskell(2,10,0)
