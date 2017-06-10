@@ -1,5 +1,5 @@
 name:                th-abstraction
-version:             0.2.1.0
+version:             0.2.2.0
 synopsis:            Nicer interface for reified information about data types
 description:         This package normalizes variations in the interface for
                      inspecting datatype information via Template Haskell
@@ -15,7 +15,7 @@ homepage:            https://github.com/glguy/th-abstraction
 bug-reports:         https://github.com/glguy/th-abstraction/issues
 category:            Development
 build-type:          Simple
-extra-source-files:  ChangeLog.md
+extra-source-files:  ChangeLog.md README.md
 cabal-version:       >=1.10
 tested-with:         GHC==8.0.2, GHC==7.10.3, GHC==7.8.4, GHC==7.6.3, GHC==7.4.2, GHC==7.2.2, GHC==7.0.4
 
