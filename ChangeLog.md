@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## 0.2.2.0 -- 2017-06-10
+
+* Fix `freeVariables` on lists not not produce duplicates.
+
 ## 0.2.1.0 -- 2017-06-09
 
 * Add sensible reify defaults and error messages when we

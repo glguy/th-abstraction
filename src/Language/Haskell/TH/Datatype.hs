@@ -104,7 +104,7 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.List (find, union, (\\))
+import           Data.List (nub, find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
@@ -380,29 +380,34 @@ reifyParent con parent =
 
     kindVars = freeVariables . map kindPart
 
-    -- Sadly, Template Haskell's treatment of data family instances leaves much
-    -- to be desired. Here are some problems that we have to work around:
-    --
-    -- 1. On all versions of GHC, TH leaves off the kind signatures on the
-    --    type patterns of data family instances where a kind signature isn't
-    --    specified explicitly. Here, we can use the parent data family's
-    --    type variable binders to reconstruct the kind signatures if they
-    --    are missing.
-    -- 2. On GHC 7.6 and 7.8, TH will eta-reduce data instances. We can find
-    --    the missing type variables on the data constructor.
-    --
-    -- We opt to avoid propagating these new type variables through to the
-    -- constructor now, but we will return to this task in normalizeCon.
-    repairDataFam
-      (FamilyD _ _ dvars _)
-      (NewtypeInstD cx n ts con deriv) =
-        NewtypeInstD cx n (repairVarKindsWith' dvars ts) con deriv
-    repairDataFam
-      (FamilyD _ _ dvars _)
-      (DataInstD cx n ts cons deriv) =
-        DataInstD cx n (repairVarKindsWith' dvars ts) cons deriv
+-- Sadly, Template Haskell's treatment of data family instances leaves much
+-- to be desired. Here are some problems that we have to work around:
+--
+-- 1. On all versions of GHC, TH leaves off the kind signatures on the
+--    type patterns of data family instances where a kind signature isn't
+--    specified explicitly. Here, we can use the parent data family's
+--    type variable binders to reconstruct the kind signatures if they
+--    are missing.
+-- 2. On GHC 7.6 and 7.8, TH will eta-reduce data instances. We can find
+--    the missing type variables on the data constructor.
+--
+-- We opt to avoid propagating these new type variables through to the
+-- constructor now, but we will return to this task in normalizeCon.
+repairDataFam ::
+  Dec {- ^ family declaration   -} ->
+  Dec {- ^ instance declaration -} ->
+  Dec {- ^ instance declaration -}
+
+repairDataFam
+  (FamilyD _ _ dvars _)
+  (NewtypeInstD cx n ts con deriv) =
+    NewtypeInstD cx n (repairVarKindsWith' dvars ts) con deriv
+repairDataFam
+  (FamilyD _ _ dvars _)
+  (DataInstD cx n ts cons deriv) =
+    DataInstD cx n (repairVarKindsWith' dvars ts) cons deriv
 #else
-    repairDataFam famD instD
+repairDataFam famD instD
 # if MIN_VERSION_template_haskell(2,11,0)
       | DataFamilyD _ dvars _ <- famD
       , NewtypeInstD cx n ts k c deriv <- instD
@@ -421,7 +426,7 @@ reifyParent con parent =
       = DataInstD cx n (repairVarKindsWith dvars ts) c deriv
 # endif
 #endif
-    repairDataFam _ instD = instD
+repairDataFam _ instD = instD
 
 repairVarKindsWith :: [TyVarBndr] -> [Type] -> [Type]
 repairVarKindsWith = zipWith stealKindForType
@@ -971,7 +976,7 @@ class TypeSubstitution a where
   freeVariables     :: a -> [Name]
 
 instance TypeSubstitution a => TypeSubstitution [a] where
-  freeVariables     = foldMap freeVariables
+  freeVariables     = nub . concat . map freeVariables
   applySubstitution = fmap . applySubstitution
 
 instance TypeSubstitution Type where
