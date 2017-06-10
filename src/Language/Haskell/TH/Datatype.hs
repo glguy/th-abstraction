@@ -263,7 +263,27 @@ datatypeType di
 -- lookup datatype information about /data instances/ and /newtype instances/.
 --
 -- GADT constructors are normalized into datatypes with explicit equality
--- constraints.
+-- constraints. Note that no effort is made to distinguish between equalities of
+-- the same (homogeneous) kind and equalities between different (heterogeneous)
+-- kinds. For instance, the following GADT's constructors:
+--
+-- @
+-- data T (a :: k -> *) where
+--   MkT1 :: T Proxy
+--   MkT2 :: T Maybe
+-- @
+--
+-- will be normalized to the following equality constraints:
+--
+-- @
+-- AppT (AppT EqualityT (VarT a)) (ConT Proxy) -- MkT1
+-- AppT (AppT EqualityT (VarT a)) (ConT Maybe) -- MkT2
+-- @
+--
+-- But only the first equality constraint is well kinded, since in the second
+-- constraint, the kinds of (a :: k -> *) and (Maybe :: * -> *) are different.
+-- Trying to categorize which constraints need homogeneous or heterogeneous
+-- equality is tricky, so we leave that task to users of this library.
 --
 -- This function will apply various bug-fixes to the output of the underlying
 -- @template-haskell@ library in order to provide a view of datatypes in
