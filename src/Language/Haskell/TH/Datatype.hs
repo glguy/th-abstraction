@@ -349,36 +349,37 @@ reifyParent con parent =
     p info = con `elem` map constructorName (datatypeCons info)
 
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
-    kindPart (KindedTV _ k) = [k]
-    kindPart (PlainTV  _  ) = []
 
-    -- A version of repairVarKindsWith that does much more extra work to
-    -- (1) eta-expand missing type patterns, and (2) ensure that the kind
-    -- signatures for these new type patterns match accordingly.
-    repairVarKindsWith' :: [TyVarBndr] -> [Type] -> [Type]
-    repairVarKindsWith' dvars ts =
-      let nparams             = length dvars
-          kparams             = kindVars dvars
-          (tsKinds,tsNoKinds) = splitAt (length kparams) ts
-          tsKinds'            = map sanitizeStars tsKinds
-          extraTys            = drop (length tsNoKinds) (bndrParams dvars)
-          ts'                 = tsNoKinds ++ extraTys -- eta-expand
-      in applySubstitution (Map.fromList (zip kparams tsKinds')) $
-         repairVarKindsWith dvars ts'
+-- A GHC 7.6-specific bug requires us to replace all occurrences of
+-- (ConT GHC.Prim.*) with StarT, or else Template Haskell will reject it.
+-- Luckily, (ConT GHC.Prim.*) only seems to occur in this one spot.
+sanitizeStars :: Kind -> Kind
+sanitizeStars = go
+  where
+    go :: Kind -> Kind
+    go (AppT t1 t2)                 = AppT (go t1) (go t2)
+    go (SigT t k)                   = SigT (go t) (go k)
+    go (ConT n) | n == starKindName = StarT
+    go t                            = t
 
-    -- A GHC 7.6-specific bug requires us to replace all occurrences of
-    -- (ConT GHC.Prim.*) with StarT, or else Template Haskell will reject it.
-    -- Luckily, (ConT GHC.Prim.*) only seems to occur in this one spot.
-    sanitizeStars :: Kind -> Kind
-    sanitizeStars = go
-      where
-        go :: Kind -> Kind
-        go (AppT t1 t2)                 = AppT (go t1) (go t2)
-        go (SigT t k)                   = SigT (go t) (go k)
-        go (ConT n) | n == starKindName = StarT
-        go t                            = t
+-- A version of repairVarKindsWith that does much more extra work to
+-- (1) eta-expand missing type patterns, and (2) ensure that the kind
+-- signatures for these new type patterns match accordingly.
+repairVarKindsWith' :: [TyVarBndr] -> [Type] -> [Type]
+repairVarKindsWith' dvars ts =
+  let kindVars                = freeVariables . map kindPart
+      kindPart (KindedTV _ k) = [k]
+      kindPart (PlainTV  _  ) = []
 
-    kindVars = freeVariables . map kindPart
+      nparams             = length dvars
+      kparams             = kindVars dvars
+      (tsKinds,tsNoKinds) = splitAt (length kparams) ts
+      tsKinds'            = map sanitizeStars tsKinds
+      extraTys            = drop (length tsNoKinds) (bndrParams dvars)
+      ts'                 = tsNoKinds ++ extraTys -- eta-expand
+  in applySubstitution (Map.fromList (zip kparams tsKinds')) $
+     repairVarKindsWith dvars ts'
+
 
 -- Sadly, Template Haskell's treatment of data family instances leaves much
 -- to be desired. Here are some problems that we have to work around:
