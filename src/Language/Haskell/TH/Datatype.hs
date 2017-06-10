@@ -281,7 +281,7 @@ datatypeType di
 -- @
 --
 -- But only the first equality constraint is well kinded, since in the second
--- constraint, the kinds of (a :: k -> *) and (Maybe :: * -> *) are different.
+-- constraint, the kinds of @(a :: k -> *)@ and @(Maybe :: * -> *)@ are different.
 -- Trying to categorize which constraints need homogeneous or heterogeneous
 -- equality is tricky, so we leave that task to users of this library.
 --
@@ -443,12 +443,14 @@ stealKindForType _   t        = t
 -- Beware: 'normalizeDec' can have surprising behavior when it comes to fixity.
 -- For instance, if you have this quasiquoted data declaration:
 --
+-- @
 -- [d| infix 5 :^^:
 --     data Foo where
 --       (:^^:) :: Int -> Int -> Foo |]
+-- @
 --
 -- Then if you pass the 'Dec' for @Foo@ to 'normalizeDec' without splicing it
--- in a previous Template Haskell splice, then @(:^^:) will be labeled a 'NormalConstructor'
+-- in a previous Template Haskell splice, then @(:^^:)@ will be labeled a 'NormalConstructor'
 -- instead of an 'InfixConstructor'. This is because Template Haskell has no way to
 -- reify the fixity declaration for @(:^^:)@, so it must assume there isn't one. To
 -- work around this behavior, use 'reifyDatatype' instead.
