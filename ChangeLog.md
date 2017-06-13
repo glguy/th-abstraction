@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next
+
+* Add `resolvePredSynonyms`
+
 ## 0.2.2.0 -- 2017-06-10
 
 * Fix `freeVariables` on lists not not produce duplicates.

@@ -89,6 +89,7 @@ module Language.Haskell.TH.Datatype
 
   -- * Type simplification
   , resolveTypeSynonyms
+  , resolvePredSynonyms
   , resolveInfixT
 
   -- * Fixities
@@ -804,15 +805,57 @@ resolveTypeSynonyms t =
       do info <- reifyRecover n $ fail
                    "resolveTypeSynonyms: Cannot reify type synonym information"
          case info of
-           TyConI (TySynD _ synvars def) ->
-             let argNames    = map tvName synvars
-                 (args,rest) = splitAt (length argNames) xs
-                 subst       = Map.fromList (zip argNames args)
-                 t'          = foldl AppT (applySubstitution subst def) rest
-             in resolveTypeSynonyms t'
-
+           TyConI (TySynD _ synvars def)
+             -> resolveTypeSynonyms $ expandSynonymRHS synvars xs def
            _ -> notTypeSynCase
     _ -> notTypeSynCase
+
+expandSynonymRHS ::
+  [TyVarBndr] {- ^ Substitute these variables... -} ->
+  [Type]      {- ^ ...with these types... -} ->
+  Type        {- ^ ...inside of this type. -} ->
+  Type
+expandSynonymRHS synvars ts def =
+  let argNames    = map tvName synvars
+      (args,rest) = splitAt (length argNames) ts
+      subst       = Map.fromList (zip argNames args)
+  in foldl AppT (applySubstitution subst def) rest
+
+-- | Expand all of the type synonyms in a 'Pred'.
+resolvePredSynonyms :: Pred -> Q Pred
+#if MIN_VERSION_template_haskell(2,10,0)
+resolvePredSynonyms = resolveTypeSynonyms
+#else
+resolvePredSynonyms (ClassP n ts) = do
+  info <- reifyRecover n $ fail
+            "resolvePredSynonyms: Cannot reify type synonym information"
+  case info of
+    TyConI (TySynD _ synvars def)
+      -> resolvePredSynonyms $ typeToPred $ expandSynonymRHS synvars ts def
+    _ -> ClassP n <$> mapM resolveTypeSynonyms ts
+resolvePredSynonyms (EqualP t1 t2) = do
+  t1' <- resolveTypeSynonyms t1
+  t2' <- resolveTypeSynonyms t2
+  return (EqualP t1' t2')
+
+typeToPred :: Type -> Pred
+typeToPred t =
+  let f :| xs = decomposeType t in
+  case f of
+    ConT n
+      | n == eqTypeName
+# if __GLASGOW_HASKELL__ == 704
+        -- There's an unfortunate bug in GHC 7.4 where the (~) type is reified
+        -- with an explicit kind argument. To work around this, we ignore it.
+      , [_,t1,t2] <- xs
+# else
+      , [t1,t2] <- xs
+# endif
+      -> EqualP t1 t2
+      | otherwise
+      -> ClassP n xs
+    _ -> error $ "typeToPred: Can't handle type " ++ show t
+#endif
 
 -- | Decompose a type into a list of it's outermost applications. This process
 -- forgets about infix application and explicit parentheses.

@@ -14,6 +14,7 @@ up to alpha renaming.
 -}
 module Harness
   ( validate
+  , equateCxt
   , equateDI
   , varKCompat
   ) where
