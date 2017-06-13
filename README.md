@@ -6,9 +6,9 @@ th-abstraction
 This package provides a consistent interface to a subset of Template Haskell.
 
 Currently the package provides a consistent view of the reified declaration
-information about datatypes, newtypes, data families, and newtype families.
-These interfaces abstract away the differences in the normal and GADT syntax
-used to define these types.
+information about datatypes, newtypes, and data family instances. These
+interfaces abstract away the differences in the normal and GADT syntax used to
+define these types.
 
 Contact Information
 -------------------
