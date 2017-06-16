@@ -1,4 +1,8 @@
-{-# Language CPP, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+
+#if __GLASGOW_HASKELL__ >= 704
+{-# LANGUAGE ConstraintKinds #-}
+#endif
 
 #if MIN_VERSION_template_haskell(2,8,0)
 {-# Language PolyKinds #-}
@@ -17,6 +21,11 @@ the versions of GHC supported by this package.
 
 -}
 module Main (main) where
+
+#if __GLASGOW_HASKELL__ >= 704
+import Control.Monad (zipWithM_)
+import GHC.Exts (Constraint)
+#endif
 
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
@@ -90,6 +99,18 @@ data family FamLocalDec1 a
 data family FamLocalDec2 a b c
 #endif
 
+#if __GLASGOW_HASKELL__ >= 704
+type Konst (a :: Constraint) (b :: Constraint) = a
+type PredSyn1 a b = Konst (Show a) (Read b)
+type PredSyn2 a b = Konst (PredSyn1 a b) (Show a)
+type PredSyn3 c   = Int ~ c
+
+data PredSynT =
+    PredSyn1 Int Int => MkPredSynT1 Int
+  | PredSyn2 Int Int => MkPredSynT2 Int
+  | PredSyn3 Int     => MkPredSynT3 Int
+#endif
+
 return [] -- segment type declarations above from refiy below
 
 -- | Test entry point. Tests will pass or fail at compile time.
@@ -113,6 +134,9 @@ main =
      famLocalDecTest2
 #endif
      fixityLookupTest
+#if __GLASGOW_HASKELL__ >= 704
+     resolvePredSynonymsTest
+#endif
 
 adt1Test :: IO ()
 adt1Test =
@@ -532,3 +556,17 @@ fixityLookupTest :: IO ()
 fixityLookupTest =
   $(do Just (Fixity 6 InfixR) <- reifyFixityCompat '(:**:)
        [| return () |])
+
+#if __GLASGOW_HASKELL__ >= 704
+resolvePredSynonymsTest :: IO ()
+resolvePredSynonymsTest =
+  $(do info <- reifyDatatype ''PredSynT
+       [cxt1,cxt2,cxt3] <- sequence $ map (mapM resolvePredSynonyms . constructorContext)
+                                    $ datatypeCons info
+       let mkTest = zipWithM_ (equateCxt "resolvePredSynonymsTest")
+           test1 = mkTest cxt1 [classPred ''Show [ConT ''Int]]
+           test2 = mkTest cxt2 [classPred ''Show [ConT ''Int]]
+           test3 = mkTest cxt3 [equalPred (ConT ''Int) (ConT ''Int)]
+       mapM_ (either fail return) [test1,test2,test3]
+       [| return () |])
+#endif
