@@ -3,6 +3,8 @@
 ## next
 
 * Add `resolvePredSynonyms`
+* Make `normalizeDec` and `normalizeCon` more robust with respect to
+  data family instances on GHC 7.6 and 7.8
 
 ## 0.2.2.0 -- 2017-06-10
 
