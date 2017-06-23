@@ -78,6 +78,7 @@ data family DF1 (a :: *)
 # endif
 data instance DF1 b = DF1 b
 
+data family Quoted (a :: *)
 
 # if MIN_VERSION_template_haskell(2,8,0)
 data family Poly (a :: k)
@@ -128,6 +129,7 @@ main =
 #if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
      ghc78bugTest
+     quotedTest
      polyTest
      gadtFamTest
      famLocalDecTest1
@@ -423,6 +425,28 @@ ghc78bugTest =
                    , constructorVars       = []
                    , constructorContext    = []
                    , constructorFields     = [c]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
+           }
+  )
+
+quotedTest :: IO ()
+quotedTest =
+  $(do [dec] <- [d| data instance Quoted a = MkQuoted a |]
+       info  <- normalizeDec dec
+       let a = VarT (mkName "a")
+       validate info
+         DatatypeInfo
+           { datatypeName    = mkName "Quoted"
+           , datatypeContext = []
+           , datatypeVars    = [SigT a starK]
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkQuoted"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [a]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor } ]
            }

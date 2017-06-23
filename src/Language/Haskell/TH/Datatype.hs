@@ -292,16 +292,16 @@ datatypeType di
 reifyDatatype ::
   Name {- ^ constructor -} ->
   Q DatatypeInfo
-reifyDatatype n = normalizeInfo' "reifyDatatype" =<< reify n
+reifyDatatype n = normalizeInfo' "reifyDatatype" isReified =<< reify n
 
 
 -- | Normalize 'Info' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
 normalizeInfo :: Info -> Q DatatypeInfo
-normalizeInfo = normalizeInfo' "normalizeInfo"
+normalizeInfo = normalizeInfo' "normalizeInfo" isn'tReified
 
-normalizeInfo' :: String -> Info -> Q DatatypeInfo
-normalizeInfo' entry i =
+normalizeInfo' :: String -> IsReifiedDec -> Info -> Q DatatypeInfo
+normalizeInfo' entry reifiedDec i =
   case i of
     PrimTyConI{}                      -> bad "Primitive type not supported"
     ClassI{}                          -> bad "Class not supported"
@@ -316,9 +316,13 @@ normalizeInfo' entry i =
 #if MIN_VERSION_template_haskell(2,7,0)
     FamilyI _ _                       -> bad "Type families not supported"
 #endif
-    TyConI dec                        -> normalizeDec dec
+    TyConI dec                        -> normalizeDecFor reifiedDec dec
 #if MIN_VERSION_template_haskell(2,11,0)
     DataConI name _ parent            -> reifyParent name parent
+                                         -- NB: We do not pass the IsReifiedDec information here
+                                         -- because there's no point. We have no choice but to
+                                         -- call reify here, since we need to determine the
+                                         -- parent data type/family.
 #elif MIN_VERSION_template_haskell(2,7,0)
     DataConI name _ parent _          -> reifyParent name parent
 #else
@@ -336,11 +340,11 @@ reifyParent :: Name -> Name -> Q DatatypeInfo
 reifyParent con parent =
   do info <- reify parent
      case info of
-       TyConI dec -> normalizeDec dec
+       TyConI dec -> normalizeDecFor isReified dec
 #if MIN_VERSION_template_haskell(2,7,0)
        FamilyI dec instances ->
          do let instances1 = map (repairDataFam dec) instances
-            instances2 <- mapM normalizeDec instances1
+            instances2 <- mapM (normalizeDecFor isReified) instances1
             case find p instances2 of
               Just inst -> return inst
               Nothing   -> fail "PANIC: reifyParent lost the instance"
@@ -456,41 +460,49 @@ stealKindForType _   t        = t
 -- reify the fixity declaration for @(:^^:)@, so it must assume there isn't one. To
 -- work around this behavior, use 'reifyDatatype' instead.
 normalizeDec :: Dec -> Q DatatypeInfo
+normalizeDec = normalizeDecFor isn'tReified
+
+normalizeDecFor :: IsReifiedDec -> Dec -> Q DatatypeInfo
+normalizeDecFor isReified dec =
+  case dec of
 #if MIN_VERSION_template_haskell(2,12,0)
-normalizeDec (NewtypeD context name tyvars _kind con _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
-normalizeDec (DataD context name tyvars _kind cons _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
-normalizeDec (NewtypeInstD context name params _kind con _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params [con] NewtypeInstance
-normalizeDec (DataInstD context name params _kind cons _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params cons DataInstance
+    NewtypeD context name tyvars _kind con _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) [con] Newtype
+    DataD context name tyvars _kind cons _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) cons Datatype
+    NewtypeInstD context name params _kind con _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params [con] NewtypeInstance
+    DataInstD context name params _kind cons _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params cons DataInstance
 #elif MIN_VERSION_template_haskell(2,11,0)
-normalizeDec (NewtypeD context name tyvars _kind con _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
-normalizeDec (DataD context name tyvars _kind cons _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
-normalizeDec (NewtypeInstD context name params _kind con _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params [con] NewtypeInstance
-normalizeDec (DataInstD context name params _kind cons _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params cons DataInstance
+    NewtypeD context name tyvars _kind con _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) [con] Newtype
+    DataD context name tyvars _kind cons _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) cons Datatype
+    NewtypeInstD context name params _kind con _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params [con] NewtypeInstance
+    DataInstD context name params _kind cons _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params cons DataInstance
 #else
-normalizeDec (NewtypeD context name tyvars con _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) [con] Newtype
-normalizeDec (DataD context name tyvars cons _derives) =
-  giveTypesStarKinds <$> normalizeDec' context name (bndrParams tyvars) cons Datatype
-normalizeDec (NewtypeInstD context name params con _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params [con] NewtypeInstance
-normalizeDec (DataInstD context name params cons _derives) =
-  repair13618 . giveTypesStarKinds =<<
-  normalizeDec' context name params cons DataInstance
+    NewtypeD context name tyvars con _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) [con] Newtype
+    DataD context name tyvars cons _derives ->
+      giveTypesStarKinds <$> normalizeDec' isReified context name (bndrParams tyvars) cons Datatype
+    NewtypeInstD context name params con _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params [con] NewtypeInstance
+    DataInstD context name params cons _derives ->
+      repair13618' . giveTypesStarKinds =<<
+      normalizeDec' isReified context name params cons DataInstance
 #endif
-normalizeDec _ = fail "reifyDatatype: DataD or NewtypeD required"
+    _ -> fail "normalizeDecFor: DataD or NewtypeD required"
+  where
+    repair13618' | isReified = repair13618
+                 | otherwise = return
 
 bndrParams :: [TyVarBndr] -> [Type]
 bndrParams = map $ \bndr ->
@@ -510,14 +522,15 @@ stripSigT t          = t
 
 
 normalizeDec' ::
-  Cxt             {- ^ Datatype context    -} ->
-  Name            {- ^ Type constructor    -} ->
-  [Type]          {- ^ Type parameters     -} ->
-  [Con]           {- ^ Constructors        -} ->
-  DatatypeVariant {- ^ Extra information   -} ->
+  IsReifiedDec    {- ^ Is this a reified 'Dec'? -} ->
+  Cxt             {- ^ Datatype context         -} ->
+  Name            {- ^ Type constructor         -} ->
+  [Type]          {- ^ Type parameters          -} ->
+  [Con]           {- ^ Constructors             -} ->
+  DatatypeVariant {- ^ Extra information        -} ->
   Q DatatypeInfo
-normalizeDec' context name params cons variant =
-  do cons' <- concat <$> mapM (normalizeCon name params variant) cons
+normalizeDec' reifiedDec context name params cons variant =
+  do cons' <- concat <$> mapM (normalizeConFor reifiedDec name params variant) cons
      return DatatypeInfo
        { datatypeContext = context
        , datatypeName    = name
@@ -536,7 +549,16 @@ normalizeCon ::
   DatatypeVariant {- ^ Extra information -} ->
   Con             {- ^ Constructor       -} ->
   Q [ConstructorInfo]
-normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
+normalizeCon = normalizeConFor isn'tReified
+
+normalizeConFor ::
+  IsReifiedDec    {- ^ Is this a reified 'Dec'? -} ->
+  Name            {- ^ Type constructor         -} ->
+  [Type]          {- ^ Type parameters          -} ->
+  DatatypeVariant {- ^ Extra information        -} ->
+  Con             {- ^ Constructor              -} ->
+  Q [ConstructorInfo]
+normalizeConFor reifiedDec typename params variant = fmap (map giveTyVarBndrsStarKinds) . dispatch
   where
     -- A GADT constructor is declared infix when:
     --
@@ -705,12 +727,12 @@ normalizeCon typename params variant = fmap (map giveTyVarBndrsStarKinds) . disp
       in case variant of
            -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
            -- needs to be performed to work around an old bug that eta-reduces the
-           -- type patterns of data families.
+           -- type patterns of data families (but only for reified data family instances).
            DataInstance
-             | mightHaveBeenEtaReduced params
+             | reifiedDec, mightHaveBeenEtaReduced params
              -> dataFamCompatCase
            NewtypeInstance
-             | mightHaveBeenEtaReduced params
+             | reifiedDec, mightHaveBeenEtaReduced params
              -> dataFamCompatCase
            _ -> defaultCase
 #else
@@ -1178,6 +1200,15 @@ asClassPred _             = Nothing
 #endif
 
 ------------------------------------------------------------------------
+
+-- | If we are working with a 'Dec' obtained via 'reify' (as opposed to one
+-- created from, say, [d| ... |] quotes), then we need to apply more hacks than
+-- we otherwise would to sanitize the 'Dec'. See #28.
+type IsReifiedDec = Bool
+
+isReified, isn'tReified :: IsReifiedDec
+isReified    = True
+isn'tReified = False
 
 -- On old versions of GHC, reify would not give you kind signatures for
 -- GADT type variables of kind *. To work around this, we insert the kinds
