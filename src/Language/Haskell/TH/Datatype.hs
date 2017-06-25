@@ -63,9 +63,13 @@ module Language.Haskell.TH.Datatype
 
   -- * Normalization functions
   , reifyDatatype
+  , reifyConstructor
   , normalizeInfo
   , normalizeDec
   , normalizeCon
+
+  -- * 'DatatypeInfo' lookup functions
+  , lookupByConstructorName
 
   -- * Type variable manipulation
   , TypeSubstitution(..)
@@ -290,10 +294,29 @@ datatypeType di
 -- @template-haskell@ library in order to provide a view of datatypes in
 -- as uniform a way as possible.
 reifyDatatype ::
-  Name {- ^ constructor -} ->
+  Name {- ^ data type or constructor name -} ->
   Q DatatypeInfo
 reifyDatatype n = normalizeInfo' "reifyDatatype" isReified =<< reify n
 
+-- | Compute a normalized view of the metadata about a constructor given its
+-- 'Name'. This is useful for scenarios when you don't care about the info for
+-- the enclosing data type.
+reifyConstructor ::
+  Name {- ^ constructor name -} ->
+  Q ConstructorInfo
+reifyConstructor conName = do
+  dataInfo <- reifyDatatype conName
+  return $ lookupByConstructorName conName dataInfo
+
+lookupByConstructorName ::
+  Name {- ^ constructor name -} ->
+  DatatypeInfo {- ^ info for the datatype which has that constructor -} ->
+  ConstructorInfo
+lookupByConstructorName conName dataInfo =
+  case find ((== conName) . constructorName) (datatypeCons dataInfo) of
+    Just conInfo -> conInfo
+    Nothing      -> error $ "Datatype " ++ nameBase (datatypeName dataInfo)
+                         ++ "does not have a constructor named " ++ nameBase conName
 
 -- | Normalize 'Info' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.

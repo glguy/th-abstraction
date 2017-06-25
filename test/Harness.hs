@@ -13,10 +13,13 @@ up to alpha renaming.
 
 -}
 module Harness
-  ( validate
+  ( validateDI
+  , validateCI
   , equateCxt
-  , equateDI
+
+    -- * Utilities
   , varKCompat
+  , justConstructorInfo
   ) where
 
 import           Control.Monad
@@ -25,8 +28,14 @@ import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype
 import           Language.Haskell.TH.Lib (starK)
 
-validate :: DatatypeInfo -> DatatypeInfo -> ExpQ
-validate x y = either fail (\_ -> [| return () |]) (equateDI x y)
+validateDI :: DatatypeInfo -> DatatypeInfo -> ExpQ
+validateDI = validate equateDI
+
+validateCI :: ConstructorInfo -> ConstructorInfo -> ExpQ
+validateCI = validate equateCI
+
+validate :: (a -> a -> Either String ()) -> a -> a -> ExpQ
+validate equate x y = either fail (\_ -> [| return () |]) (equate x y)
 
 -- | If the arguments are equal up to renaming return @'Right' ()@,
 -- otherwise return a string exlaining the mismatch.
@@ -50,7 +59,8 @@ equateDI dat1 dat2 =
 
      zipWithM_ equateCI
        (datatypeCons dat1)
-       (applySubstitution sub (datatypeCons dat2))
+       (datatypeCons dat2) -- Don't bother applying the substitution here, as
+                           -- equateCI takes care of this for us
 
 equateCxt :: String -> Pred -> Pred -> Either String ()
 equateCxt lbl pred1 pred2 =
@@ -64,8 +74,11 @@ equateCI con1 con2 =
   do check "constructorName"       (nameBase . constructorName) con1 con2
      check "constructorVariant"    constructorVariantBase       con1 con2
 
-     let sub = Map.fromList (zip (map tvName (constructorVars con2))
-                                 (map VarT (map tvName (constructorVars con1))))
+     let sub1 = Map.fromList (zip (map tvName (constructorVars con2))
+                                  (map VarT (map tvName (constructorVars con1))))
+         sub2 = Map.fromList (zip (freeVariables con2)
+                                  (map VarT (freeVariables con1)))
+         sub  = sub1 `Map.union` sub2
 
      zipWithM_ (equateCxt "constructorContext")
         (constructorContext con1)
@@ -114,3 +127,15 @@ varKCompat = VarT
 #else
 varKCompat _ = starK
 #endif
+
+-- We must define this here due to Template Haskell staging restrictions
+justConstructorInfo :: ConstructorInfo
+justConstructorInfo =
+  ConstructorInfo
+    { constructorName       = 'Just
+    , constructorVars       = []
+    , constructorContext    = []
+    , constructorFields     = [VarT (mkName "a")]
+    , constructorStrictness = [notStrictAnnot]
+    , constructorVariant    = NormalConstructor
+    }
