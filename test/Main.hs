@@ -140,6 +140,7 @@ main =
      resolvePredSynonymsTest
 #endif
      reifyDatatypeWithConNameTest
+     reifyConstructorTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -148,7 +149,7 @@ adt1Test =
        let vars@[a,b]  = map (VarT . mkName) ["a","b"]
            [aSig,bSig] = map (\v -> SigT v starK) vars
 
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName = ''Adt1
            , datatypeContext = []
@@ -179,7 +180,7 @@ gadt1Test =
 
        let a = VarT (mkName "a")
 
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName = ''Gadt1
            , datatypeContext = []
@@ -235,7 +236,7 @@ gadtrec1Test =
                    , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant    = RecordConstructor ['gadtrec1a, 'gadtrec1b] }
 
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''Gadtrec1
            , datatypeContext = []
@@ -253,7 +254,7 @@ equalTest =
        let vars@[a,b,c]     = map (VarT . mkName) ["a","b","c"]
            [aSig,bSig,cSig] = map (\v -> SigT v starK) vars
 
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''Equal
            , datatypeContext = []
@@ -280,7 +281,7 @@ showableTest =
 
        let a = mkName "a"
 
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''Showable
            , datatypeContext = []
@@ -301,7 +302,7 @@ showableTest =
 recordTest :: IO ()
 recordTest =
   $(do info <- reifyDatatype ''R
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''R
            , datatypeContext = []
@@ -332,7 +333,7 @@ gadt2Test =
                      , constructorFields     = []
                      , constructorStrictness = []
                      , constructorVariant    = NormalConstructor }
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''Gadt2
            , datatypeContext = []
@@ -355,7 +356,7 @@ voidstosTest :: IO ()
 voidstosTest =
   $(do info <- reifyDatatype ''VoidStoS
        let g = mkName "g"
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''VoidStoS
            , datatypeContext = []
@@ -368,7 +369,7 @@ voidstosTest =
 strictDemoTest :: IO ()
 strictDemoTest =
   $(do info <- reifyDatatype ''StrictDemo
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''StrictDemo
            , datatypeContext = []
@@ -393,7 +394,7 @@ dataFamilyTest :: IO ()
 dataFamilyTest =
   $(do info <- reifyDatatype 'DFMaybe
        let a = mkName "a"
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''DF
            , datatypeContext = []
@@ -414,7 +415,7 @@ ghc78bugTest :: IO ()
 ghc78bugTest =
   $(do info <- reifyDatatype 'DF1
        let c = VarT (mkName "c")
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''DF1
            , datatypeContext = []
@@ -436,7 +437,7 @@ quotedTest =
   $(do [dec] <- [d| data instance Quoted a = MkQuoted a |]
        info  <- normalizeDec dec
        let a = VarT (mkName "a")
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = mkName "Quoted"
            , datatypeContext = []
@@ -457,7 +458,7 @@ polyTest :: IO ()
 polyTest =
   $(do info <- reifyDatatype 'MkPoly
        let [a,k] = map mkName ["a","k"]
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''Poly
            , datatypeContext = []
@@ -480,7 +481,7 @@ gadtFamTest =
        let names@[c,d,e,q]   = map mkName ["c","d","e","q"]
            [cTy,dTy,eTy,qTy] = map VarT names
            [cSig,dSig]       = map (\v -> SigT v starK) [cTy,dTy]
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''GadtFam
            , datatypeContext = []
@@ -536,7 +537,7 @@ famLocalDecTest1 :: IO ()
 famLocalDecTest1 =
   $(do [dec] <- [d| data instance FamLocalDec1 Int = FamLocalDec1Int { mochi :: Double } |]
        info <- normalizeDec dec
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''FamLocalDec1
            , datatypeContext = []
@@ -559,7 +560,7 @@ famLocalDecTest2 =
        info <- normalizeDec dec
        let tys@[a,b]   = map (VarT . mkName) ["a", "b"]
            [aSig,bSig] = map (\v -> SigT v starK) tys
-       validate info
+       validateDI info
          DatatypeInfo
            { datatypeName    = ''FamLocalDec2
            , datatypeContext = []
@@ -598,13 +599,13 @@ resolvePredSynonymsTest =
 
 reifyDatatypeWithConNameTest :: IO ()
 reifyDatatypeWithConNameTest =
-  $(do info <- reifyDatatype ''Maybe
+  $(do info <- reifyDatatype 'Just
        let a = VarT (mkName "a")
-       validate info
+       validateDI info
          DatatypeInfo
           { datatypeContext = []
           , datatypeName    = ''Maybe
-          , datatypeVars    = [SigT a starK]
+          , datatypeVars    = [SigT (VarT (mkName "a")) starK]
           , datatypeVariant = Datatype
           , datatypeCons    =
               [ ConstructorInfo
@@ -615,14 +616,12 @@ reifyDatatypeWithConNameTest =
                   , constructorStrictness = []
                   , constructorVariant    = NormalConstructor
                   }
-              , ConstructorInfo
-                  { constructorName       = 'Just
-                  , constructorVars       = []
-                  , constructorContext    = []
-                  , constructorFields     = [a]
-                  , constructorStrictness = [notStrictAnnot]
-                  , constructorVariant    = NormalConstructor
-                  }
+              , justConstructorInfo
               ]
           }
    )
+
+reifyConstructorTest :: IO ()
+reifyConstructorTest =
+  $(do info <- reifyConstructor 'Just
+       validateCI info justConstructorInfo)

@@ -3,6 +3,9 @@
 ## next
 
 * Add `resolvePredSynonyms`
+* Add `reifyConstructor`, which allows reification of `ConstructorInfo` from
+  a constructor name, and `lookupByConstructorName`, which allows directly
+  looking up a `ConstructorInfo` from a `DatatypeInfo` value.
 * Fix bug that caused `th-abstraction` to fail on GHC 7.0 and 7.2 when passing
   a vanilla constructor name to `reifyDatatype`
 * Make `normalizeDec` and `normalizeCon` more robust with respect to
