@@ -323,13 +323,8 @@ normalizeInfo' entry reifiedDec i =
                                          -- because there's no point. We have no choice but to
                                          -- call reify here, since we need to determine the
                                          -- parent data type/family.
-#elif MIN_VERSION_template_haskell(2,7,0)
-    DataConI name _ parent _          -> reifyParent name parent
 #else
-    -- Give a sensible error message if you try to look up a data family
-    -- instance constructor in GHC 7.0 or 7.2
-    DataConI{}                        -> bad $ "Data family instances can only " ++
-                                               "be reified with GHC 7.4 or later"
+    DataConI name _ parent _          -> reifyParent name parent
 #endif
     _                                 -> bad "Expected a type constructor"
   where
@@ -340,6 +335,14 @@ reifyParent :: Name -> Name -> Q DatatypeInfo
 reifyParent con parent =
   do info <- reify parent
      case info of
+#if !(MIN_VERSION_template_haskell(2,11,0))
+       -- This unusual combination of Info and Dec is only possible to reify on
+       -- GHC 7.0 and 7.2, when you try to reify a data family. Because there's
+       -- no way to reify the data family *instances* on these versions of GHC,
+       -- we have no choice but to fail.
+       TyConI (FamilyD{}) -> fail $ "reifyParent: Data family instances can only " ++
+                                    "be reified with GHC 7.4 or later"
+#endif
        TyConI dec -> normalizeDecFor isReified dec
 #if MIN_VERSION_template_haskell(2,7,0)
        FamilyI dec instances ->

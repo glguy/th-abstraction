@@ -139,6 +139,7 @@ main =
 #if __GLASGOW_HASKELL__ >= 704
      resolvePredSynonymsTest
 #endif
+     reifyDatatypeWithConNameTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -594,3 +595,34 @@ resolvePredSynonymsTest =
        mapM_ (either fail return) [test1,test2,test3]
        [| return () |])
 #endif
+
+reifyDatatypeWithConNameTest :: IO ()
+reifyDatatypeWithConNameTest =
+  $(do info <- reifyDatatype ''Maybe
+       let a = VarT (mkName "a")
+       validate info
+         DatatypeInfo
+          { datatypeContext = []
+          , datatypeName    = ''Maybe
+          , datatypeVars    = [SigT a starK]
+          , datatypeVariant = Datatype
+          , datatypeCons    =
+              [ ConstructorInfo
+                  { constructorName       = 'Nothing
+                  , constructorVars       = []
+                  , constructorContext    = []
+                  , constructorFields     = []
+                  , constructorStrictness = []
+                  , constructorVariant    = NormalConstructor
+                  }
+              , ConstructorInfo
+                  { constructorName       = 'Just
+                  , constructorVars       = []
+                  , constructorContext    = []
+                  , constructorFields     = [a]
+                  , constructorStrictness = [notStrictAnnot]
+                  , constructorVariant    = NormalConstructor
+                  }
+              ]
+          }
+   )

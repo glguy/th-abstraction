@@ -3,6 +3,8 @@
 ## next
 
 * Add `resolvePredSynonyms`
+* Fix bug that caused `th-abstraction` to fail on GHC 7.0 and 7.2 when passing
+  a vanilla constructor name to `reifyDatatype`
 * Make `normalizeDec` and `normalizeCon` more robust with respect to
   data family instances on GHC 7.6 and 7.8
 
