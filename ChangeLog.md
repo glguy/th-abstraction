@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next
+## 0.2.3.0 -- 2017-06-26
 
 * Add `resolvePredSynonyms`
 * Add `reifyConstructor`, which allows reification of `ConstructorInfo` from
