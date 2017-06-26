@@ -64,12 +64,14 @@ module Language.Haskell.TH.Datatype
   -- * Normalization functions
   , reifyDatatype
   , reifyConstructor
+  , reifyRecord
   , normalizeInfo
   , normalizeDec
   , normalizeCon
 
   -- * 'DatatypeInfo' lookup functions
   , lookupByConstructorName
+  , lookupByRecordName
 
   -- * Type variable manipulation
   , TypeSubstitution(..)
@@ -265,7 +267,12 @@ datatypeType di
 --
 -- This function will accept any constructor (value or type) for a type
 -- declared with newtype or data. Value constructors must be used to
--- lookup datatype information about /data instances/ and /newtype instances/.
+-- lookup datatype information about /data instances/ and /newtype instances/,
+-- as giving the type constructor of a data family is often not enough to
+-- determine a particular data family instance.
+--
+-- In addition, this function will also accept a record selector for a
+-- data type with a constructor which uses that record.
 --
 -- GADT constructors are normalized into datatypes with explicit equality
 -- constraints. Note that no effort is made to distinguish between equalities of
@@ -308,6 +315,18 @@ reifyConstructor conName = do
   dataInfo <- reifyDatatype conName
   return $ lookupByConstructorName conName dataInfo
 
+-- | Compute a normalized view of the metadata about a constructor given the
+-- 'Name' of one of its record selectors. This is useful for scenarios when you
+-- don't care about the info for the enclosing data type.
+reifyRecord ::
+  Name {- ^ record name -} ->
+  Q ConstructorInfo
+reifyRecord recordName = do
+  dataInfo <- reifyDatatype recordName
+  return $ lookupByRecordName recordName dataInfo
+
+-- | Given a 'DatatypeInfo', find the 'ConstructorInfo' corresponding to the
+-- 'Name' of one of its constructors.
 lookupByConstructorName ::
   Name {- ^ constructor name -} ->
   DatatypeInfo {- ^ info for the datatype which has that constructor -} ->
@@ -316,7 +335,19 @@ lookupByConstructorName conName dataInfo =
   case find ((== conName) . constructorName) (datatypeCons dataInfo) of
     Just conInfo -> conInfo
     Nothing      -> error $ "Datatype " ++ nameBase (datatypeName dataInfo)
-                         ++ "does not have a constructor named " ++ nameBase conName
+                         ++ " does not have a constructor named " ++ nameBase conName
+-- | Given a 'DatatypeInfo', find the 'ConstructorInfo' corresponding to the
+-- 'Name' of one of its constructors.
+lookupByRecordName ::
+  Name {- ^ record name -} ->
+  DatatypeInfo {- ^ info for the datatype which has that constructor -} ->
+  ConstructorInfo
+lookupByRecordName recordName dataInfo =
+  case find (conHasRecord recordName) (datatypeCons dataInfo) of
+    Just conInfo -> conInfo
+    Nothing      -> error $ "Datatype " ++ nameBase (datatypeName dataInfo)
+                         ++ " does not have any constructors with a "
+                         ++ "record selector named " ++ nameBase recordName
 
 -- | Normalize 'Info' for a newtype or datatype into a 'DatatypeInfo'.
 -- Fail in 'Q' otherwise.
@@ -349,22 +380,60 @@ normalizeInfo' entry reifiedDec i =
 #else
     DataConI name _ parent _          -> reifyParent name parent
 #endif
+#if MIN_VERSION_template_haskell(2,11,0)
+    VarI recName recTy _              -> reifyRecordType recName recTy
+                                         -- NB: Similarly, we do not pass the IsReifiedDec
+                                         -- information here.
+#else
+    VarI recName recTy _ _            -> reifyRecordType recName recTy
+#endif
     _                                 -> bad "Expected a type constructor"
   where
     bad msg = fail (entry ++ ": " ++ msg)
 
 
 reifyParent :: Name -> Name -> Q DatatypeInfo
-reifyParent con parent =
-  do info <- reify parent
+reifyParent con = reifyParentWith "reifyParent" p
+  where
+    p :: DatatypeInfo -> Bool
+    p info = con `elem` map constructorName (datatypeCons info)
+
+reifyRecordType :: Name -> Type -> Q DatatypeInfo
+reifyRecordType recName recTy =
+  let (_, argTys :|- _) = uncurryType recTy
+  in case argTys of
+       dataTy:_ -> decomposeDataType dataTy
+       _        -> notRecSelFailure
+  where
+    decomposeDataType :: Type -> Q DatatypeInfo
+    decomposeDataType ty =
+      do case decomposeType ty of
+           ConT parent :| _ -> reifyParentWith "reifyRecordType" p parent
+           _                -> notRecSelFailure
+
+    notRecSelFailure :: Q a
+    notRecSelFailure = fail $
+      "reifyRecordType: Not a record selector type: " ++
+      nameBase recName ++ " :: " ++ show recTy
+
+    p :: DatatypeInfo -> Bool
+    p info = any (conHasRecord recName) (datatypeCons info)
+
+reifyParentWith ::
+  String                 {- ^ prefix for error messages -} ->
+  (DatatypeInfo -> Bool) {- ^ predicate for finding the right
+                              data family instance -}      ->
+  Name                   {- ^ parent data type name -}     ->
+  Q DatatypeInfo
+reifyParentWith prefix p n =
+  do info <- reify n
      case info of
 #if !(MIN_VERSION_template_haskell(2,11,0))
        -- This unusual combination of Info and Dec is only possible to reify on
        -- GHC 7.0 and 7.2, when you try to reify a data family. Because there's
        -- no way to reify the data family *instances* on these versions of GHC,
        -- we have no choice but to fail.
-       TyConI (FamilyD{}) -> fail $ "reifyParent: Data family instances can only " ++
-                                    "be reified with GHC 7.4 or later"
+       TyConI FamilyD{} -> dataFamiliesOnOldGHCsError
 #endif
        TyConI dec -> normalizeDecFor isReified dec
 #if MIN_VERSION_template_haskell(2,7,0)
@@ -373,11 +442,16 @@ reifyParent con parent =
             instances2 <- mapM (normalizeDecFor isReified) instances1
             case find p instances2 of
               Just inst -> return inst
-              Nothing   -> fail "PANIC: reifyParent lost the instance"
+              Nothing   -> panic "lost the instance"
 #endif
-       _ -> fail "PANIC: reifyParent unexpected parent"
+       _ -> panic "unexpected parent"
   where
-    p info = con `elem` map constructorName (datatypeCons info)
+    dataFamiliesOnOldGHCsError :: Q a
+    dataFamiliesOnOldGHCsError = fail $
+      prefix ++ ": Data family instances can only be reified with GHC 7.4 or later"
+
+    panic :: String -> Q a
+    panic message = fail $ "PANIC: " ++ prefix ++ " " ++ message
 
 #if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
 
@@ -922,7 +996,6 @@ decomposeType = go []
 -- saves dependencies for supporting older GHCs
 data NonEmpty a = a :| [a]
 
-#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
 data NonEmptySnoc a = [a] :|- a
 
 -- Decompose a function type into its context, argument types,
@@ -939,7 +1012,6 @@ uncurryType = go [] []
     go ctxt args (AppT (AppT ArrowT t1) t2) = go ctxt (t1:args) t2
     go ctxt args (ForallT _ ctxt' t)        = go (ctxt++ctxt') args t
     go ctxt args t                          = (ctxt, reverse args :|- t)
-#endif
 
 -- | Resolve any infix type application in a type using the fixities that
 -- are currently available. Starting in `template-haskell-2.11` types could
@@ -1038,6 +1110,13 @@ takeFieldStrictness xs = [normalizeStrictness a | (_,a,_) <- xs]
 
 takeFieldTypes :: [(a,b,Type)] -> [Type]
 takeFieldTypes xs = [a | (_,_,a) <- xs]
+
+conHasRecord :: Name -> ConstructorInfo -> Bool
+conHasRecord recName info =
+  case constructorVariant info of
+    NormalConstructor        -> False
+    InfixConstructor         -> False
+    RecordConstructor fields -> recName `elem` fields
 
 ------------------------------------------------------------------------
 

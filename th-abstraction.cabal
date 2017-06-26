@@ -35,6 +35,7 @@ library
 
 test-suite unit-tests
   other-modules:       Harness
+                       Types
   type:                exitcode-stdio-1.0
   main-is:             Main.hs
   build-depends:       th-abstraction, base, containers, template-haskell

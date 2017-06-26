@@ -19,7 +19,6 @@ module Harness
 
     -- * Utilities
   , varKCompat
-  , justConstructorInfo
   ) where
 
 import           Control.Monad
@@ -127,15 +126,3 @@ varKCompat = VarT
 #else
 varKCompat _ = starK
 #endif
-
--- We must define this here due to Template Haskell staging restrictions
-justConstructorInfo :: ConstructorInfo
-justConstructorInfo =
-  ConstructorInfo
-    { constructorName       = 'Just
-    , constructorVars       = []
-    , constructorContext    = []
-    , constructorFields     = [VarT (mkName "a")]
-    , constructorStrictness = [notStrictAnnot]
-    , constructorVariant    = NormalConstructor
-    }
