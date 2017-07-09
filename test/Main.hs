@@ -26,6 +26,10 @@ module Main (main) where
 import Control.Monad (zipWithM_)
 #endif
 
+#if MIN_VERSION_base(4,7,0)
+import Data.Type.Equality ((:~:)(..))
+#endif
+
 import Language.Haskell.TH
 import Language.Haskell.TH.Datatype
 import Language.Haskell.TH.Lib (starK)
@@ -62,6 +66,9 @@ main =
 #endif
      reifyDatatypeWithConNameTest
      reifyConstructorTest
+#if MIN_VERSION_base(4,7,0)
+     importedEqualityTest
+#endif
 
 adt1Test :: IO ()
 adt1Test =
@@ -521,7 +528,6 @@ resolvePredSynonymsTest =
 reifyDatatypeWithConNameTest :: IO ()
 reifyDatatypeWithConNameTest =
   $(do info <- reifyDatatype 'Just
-       let a = VarT (mkName "a")
        validateDI info
          DatatypeInfo
           { datatypeContext = []
@@ -546,3 +552,30 @@ reifyConstructorTest :: IO ()
 reifyConstructorTest =
   $(do info <- reifyConstructor 'Just
        validateCI info justCI)
+
+#if MIN_VERSION_base(4,7,0)
+importedEqualityTest :: IO ()
+importedEqualityTest =
+  $(do info <- reifyDatatype ''(:~:)
+       let [a,b] = map (VarT . mkName) ["a","b"]
+           k     = mkName "k"
+           kKind = varKCompat k
+       validateDI info
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''(:~:)
+           , datatypeVars    = [SigT a kKind, SigT b kKind]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'Refl
+                   , constructorVars       = [KindedTV k starK]
+                     -- This shouldn't happen, ideally. See #37.
+
+                   , constructorContext    = [equalPred a b]
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+#endif
