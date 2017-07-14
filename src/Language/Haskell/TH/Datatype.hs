@@ -106,6 +106,7 @@ module Language.Haskell.TH.Datatype
   -- * Convenience functions
   , unifyTypes
   , tvName
+  , tvKind
   , datatypeType
   ) where
 
@@ -539,7 +540,7 @@ repairVarKindsWith = zipWith stealKindForType
 
 -- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
 stealKindForType :: TyVarBndr -> Type -> Type
-stealKindForType tvb t@VarT{} = SigT t (tvbKind tvb)
+stealKindForType tvb t@VarT{} = SigT t (tvKind tvb)
 stealKindForType _   t        = t
 
 -- | Normalize 'Dec' for a newtype or datatype into a 'DatatypeInfo'.
@@ -611,9 +612,9 @@ bndrParams = map $ \bndr ->
     PlainTV  t   -> VarT t
 
 -- | Extract the kind from a 'TyVarBndr'. Assumes 'PlainTV' has kind @*@.
-tvbKind :: TyVarBndr -> Kind
-tvbKind (PlainTV  _)   = starK
-tvbKind (KindedTV _ k) = k
+tvKind :: TyVarBndr -> Kind
+tvKind (PlainTV  _)   = starK
+tvKind (KindedTV _ k) = k
 
 -- | Remove the outermost 'SigT'.
 stripSigT :: Type -> Type
@@ -878,16 +879,36 @@ normalizeGadtC ::
   Q [ConstructorInfo]
 normalizeGadtC typename params tyvars context names innerType
                fields stricts getVariant =
-  do innerType' <- resolveTypeSynonyms innerType
+  do -- Due to GHC Trac #13885, it's possible that the type variables bound by
+     -- a GADT constructor will shadow those that are bound by the data type.
+     -- This function assumes this isn't the case in certain parts (e.g., when
+     -- mergeArguments is invoked), so we do an alpha-renaming of the
+     -- constructor-bound variables before proceeding. See #36 for an example
+     -- of what can go wrong if this isn't done.
+     let conBoundNames =
+           concatMap (\tvb -> tvName tvb:freeVariables (tvKind tvb)) tyvars
+     conSubst <- T.sequence $ Map.fromList [ (n, newName (nameBase n))
+                                           | n <- conBoundNames ]
+     let conSubst'     = fmap VarT conSubst
+         renamedTyvars =
+           map (\tvb -> case tvb of
+                          PlainTV n    -> PlainTV  (conSubst Map.! n)
+                          KindedTV n k -> KindedTV (conSubst Map.! n)
+                                                   (applySubstitution conSubst' k)) tyvars
+         renamedContext   = applySubstitution conSubst' context
+         renamedInnerType = applySubstitution conSubst' innerType
+         renamedFields    = applySubstitution conSubst' fields
+
+     innerType' <- resolveTypeSynonyms renamedInnerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
 
          let (substName, context1) = mergeArguments params ts
              subst   = VarT <$> substName
-             tyvars' = [ tv | tv <- tyvars, Map.notMember (tvName tv) subst ]
+             tyvars' = [ tv | tv <- renamedTyvars, Map.notMember (tvName tv) subst ]
 
-             context2 = applySubstitution subst (context1 ++ context)
-             fields'  = applySubstitution subst fields
+             context2 = applySubstitution subst (context1 ++ renamedContext)
+             fields'  = applySubstitution subst renamedFields
          in sequence [ ConstructorInfo name tyvars' context2
                                        fields' stricts <$> variantQ
                      | name <- names

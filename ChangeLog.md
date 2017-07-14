@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+
+* Fix bug that caused GADT equality constraints to be incorrect in some cases.
+
 ## 0.2.3.0 -- 2017-06-26
 
 * Add `resolvePredSynonyms`
