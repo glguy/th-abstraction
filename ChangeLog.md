@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.4.0 -- 2017-07-31
 
 * Fix bug that caused GADT equality constraints to be incorrect in some cases.
 * Expose `Unpackedness` and `Strictness` (which were unexported by accident).
