@@ -60,6 +60,8 @@ module Language.Haskell.TH.Datatype
   , DatatypeVariant(..)
   , ConstructorVariant(..)
   , FieldStrictness(..)
+  , Unpackedness(..)
+  , Strictness(..)
 
   -- * Normalization functions
   , reifyDatatype

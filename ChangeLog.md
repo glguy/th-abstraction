@@ -3,6 +3,7 @@
 ## next -- ????-??-??
 
 * Fix bug that caused GADT equality constraints to be incorrect in some cases.
+* Expose `Unpackedness` and `Strictness` (which were unexported by accident).
 
 ## 0.2.3.0 -- 2017-06-26
 
