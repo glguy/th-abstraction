@@ -88,6 +88,8 @@ module Language.Haskell.TH.Datatype
 
   -- * Backward compatible data definitions
   , dataDCompat
+  , newtypeDCompat
+  , tySynInstDCompat
   , arrowKCompat
 
   -- * Strictness annotations
@@ -1418,6 +1420,38 @@ dataDCompat c n ts cs ds =
     (return (map ConT ds))
 #else
 dataDCompat = dataD
+#endif
+
+-- | Backward compatible version of 'newtypeD'
+newtypeDCompat ::
+  CxtQ        {- ^ context                 -} ->
+  Name        {- ^ type constructor        -} ->
+  [TyVarBndr] {- ^ type parameters         -} ->
+  ConQ        {- ^ constructor definition  -} ->
+  [Name]      {- ^ derived class names     -} ->
+  DecQ
+#if MIN_VERSION_template_haskell(2,12,0)
+newtypeDCompat c n ts cs ds =
+  newtypeD c n ts Nothing cs
+    (if null ds then [] else [derivClause Nothing (map conT ds)])
+#elif MIN_VERSION_template_haskell(2,11,0)
+newtypeDCompat c n ts cs ds =
+  newtypeD c n ts Nothing cs
+    (return (map ConT ds))
+#else
+newtypeDCompat = newtypeD
+#endif
+
+-- | Backward compatible version of 'tySynInstD'
+tySynInstDCompat ::
+  Name    {- ^ type family name    -} ->
+  [TypeQ] {- ^ instance parameters -} ->
+  TypeQ   {- ^ instance result     -} ->
+  DecQ
+#if MIN_VERSION_template_haskell(2,9,0)
+tySynInstDCompat n ps r = TySynInstD n <$> (TySynEqn <$> sequence ps <*> r)
+#else
+tySynInstDCompat = tySynInstD
 #endif
 
 arrowKCompat :: Kind -> Kind -> Kind

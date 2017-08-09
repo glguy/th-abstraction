@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## 0.2.5.0
+
+* Added `newtypeDCompat` and `tySynInstDCompat`
+
 ## 0.2.4.0 -- 2017-07-31
 
 * Fix bug that caused GADT equality constraints to be incorrect in some cases.
