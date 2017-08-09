@@ -90,6 +90,7 @@ module Language.Haskell.TH.Datatype
   , dataDCompat
   , newtypeDCompat
   , tySynInstDCompat
+  , pragLineDCompat
   , arrowKCompat
 
   -- * Strictness annotations
@@ -1452,6 +1453,18 @@ tySynInstDCompat ::
 tySynInstDCompat n ps r = TySynInstD n <$> (TySynEqn <$> sequence ps <*> r)
 #else
 tySynInstDCompat = tySynInstD
+#endif
+
+-- | Backward compatible version of 'pragLineD'. Returns
+-- 'Nothing' if line pragmas are not suported.
+pragLineDCompat ::
+  Int     {- ^ line number -} ->
+  String  {- ^ file name   -} ->
+  Maybe DecQ
+#if MIN_VERSION_template_haskell(2,10,0)
+pragLineDCompat ln fn = Just (pragLineD ln fn)
+#else
+pragLineDCompat _  _  = Nothing
 #endif
 
 arrowKCompat :: Kind -> Kind -> Kind

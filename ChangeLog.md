@@ -2,7 +2,7 @@
 
 ## 0.2.5.0
 
-* Added `newtypeDCompat` and `tySynInstDCompat`
+* Added `pragLineDCompat`, `newtypeDCompat` and `tySynInstDCompat`
 
 ## 0.2.4.0 -- 2017-07-31
 
