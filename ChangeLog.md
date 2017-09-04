@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix bug in which `applySubstitution` and `freeVariables` would ignore
+  type variables in the kinds of type variable binders.
+
 ## 0.2.5.0
 
 * Added `pragLineDCompat`, `newtypeDCompat` and `tySynInstDCompat`
