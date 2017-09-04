@@ -1182,9 +1182,14 @@ instance TypeSubstitution Type where
   applySubstitution subst = go
     where
       go (ForallT tvs context t) =
-        let subst' = foldl' (flip Map.delete) subst (map tvName tvs) in
-        ForallT tvs (applySubstitution subst' context)
-                    (applySubstitution subst' t)
+        let subst' = foldl' (flip Map.delete) subst (map tvName tvs)
+
+            mapTvbKind :: (Kind -> Kind) -> TyVarBndr -> TyVarBndr
+            mapTvbKind f (PlainTV n)    = PlainTV n
+            mapTvbKind f (KindedTV n k) = KindedTV n (f k) in
+        ForallT (map (mapTvbKind (applySubstitution subst')) tvs)
+                (applySubstitution subst' context)
+                (applySubstitution subst' t)
       go (AppT f x)      = AppT (go f) (go x)
       go (SigT t k)      = SigT (go t) (applySubstitution subst k) -- k could be Kind
       go (VarT v)        = Map.findWithDefault (VarT v) v subst
@@ -1198,7 +1203,9 @@ instance TypeSubstitution Type where
   freeVariables t =
     case t of
       ForallT tvs context t' ->
-          (freeVariables context `union` freeVariables t')
+          (concatMap (freeVariables . tvKind) tvs
+              `union` freeVariables context
+              `union` freeVariables t')
           \\ map tvName tvs
       AppT f x      -> freeVariables f `union` freeVariables x
       SigT t' k     -> freeVariables t' `union` freeVariables k

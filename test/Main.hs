@@ -23,19 +23,24 @@ the versions of GHC supported by this package.
 module Main (main) where
 
 #if __GLASGOW_HASKELL__ >= 704
-import Control.Monad (zipWithM_)
+import           Control.Monad (zipWithM_)
+#endif
+
+#if MIN_VERSION_template_haskell(2,8,0)
+import           Control.Monad (unless)
+import qualified Data.Map as Map
 #endif
 
 #if MIN_VERSION_base(4,7,0)
-import Data.Type.Equality ((:~:)(..))
+import           Data.Type.Equality ((:~:)(..))
 #endif
 
-import Language.Haskell.TH
-import Language.Haskell.TH.Datatype
-import Language.Haskell.TH.Lib (starK)
+import           Language.Haskell.TH
+import           Language.Haskell.TH.Datatype
+import           Language.Haskell.TH.Lib (starK)
 
-import Harness
-import Types
+import           Harness
+import           Types
 
 -- | Test entry point. Tests will pass or fail at compile time.
 main :: IO ()
@@ -68,6 +73,9 @@ main =
      reifyConstructorTest
 #if MIN_VERSION_base(4,7,0)
      importedEqualityTest
+#endif
+#if MIN_VERSION_template_haskell(2,8,0)
+     kindSubstTest
 #endif
 
 adt1Test :: IO ()
@@ -578,4 +586,23 @@ importedEqualityTest =
                    , constructorVariant    = NormalConstructor } ]
            }
    )
+#endif
+
+#if MIN_VERSION_template_haskell(2,8,0)
+kindSubstTest :: IO ()
+kindSubstTest =
+  $(do k1 <- newName "k1"
+       k2 <- newName "k2"
+       a  <- newName "a"
+       let ty = ForallT [KindedTV a (VarT k1)] [] (VarT a)
+           substTy = applySubstitution (Map.singleton k1 (VarT k2)) ty
+
+           checkFreeVars :: Type -> [Name] -> Q ()
+           checkFreeVars t freeVars =
+             unless (freeVariables t == freeVars) $
+               fail $ "free variables of " ++ show t ++ " should be " ++ show freeVars
+
+       checkFreeVars ty      [k1]
+       checkFreeVars substTy [k2]
+       [| return () |])
 #endif
