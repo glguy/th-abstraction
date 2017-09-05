@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.6.0 -- 2017-09-04
 * Fix bug in which `applySubstitution` and `freeVariables` would ignore
   type variables in the kinds of type variable binders.
 
