@@ -812,17 +812,18 @@ normalizeConFor reifiedDec typename params variant = fmap (map giveTyVarBndrsSta
           mightHaveBeenEtaReduced ts =
             case unsnoc ts of
               Nothing -> False
-              Just (initTs,lastT) ->
+              Just (initTs :|- lastT) ->
                 case varTName lastT of
                   Nothing -> False
                   Just n  -> not (n `elem` freeVariables initTs)
 
-          -- If the list is empty returns 'Nothing', otherwise returns the 'init' and the 'last'.
-          unsnoc :: [a] -> Maybe ([a], a)
+          -- If the list is empty returns 'Nothing', otherwise returns the
+          -- 'init' and the 'last'.
+          unsnoc :: [a] -> Maybe (NonEmptySnoc a)
           unsnoc [] = Nothing
-          unsnoc [x] = Just ([], x)
-          unsnoc (x:xs) = Just (x:a, b)
-              where Just (a,b) = unsnoc xs
+          unsnoc (x:xs) = case unsnoc xs of
+            Just (a :|- b) -> Just ((x:a) :|- b)
+            Nothing        -> Just ([]    :|- x)
 
           -- If a Type is a VarT, find Just its Name. Otherwise, return Nothing.
           varTName :: Type -> Maybe Name
