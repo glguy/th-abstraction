@@ -929,8 +929,6 @@ mergeArguments ::
   (Map Name Name, Cxt)
 mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
   where
-    aux (SigT x _, y) sc = aux (x,y) sc -- learn about kinds??
-    aux (x, SigT y _) sc = aux (x,y) sc
 
     aux (f `AppT` x, g `AppT` y) sc =
       aux (x,y) (aux (f,g) sc)
@@ -939,6 +937,11 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
       case p of
         VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, equalPred (VarT n) p : context)
+
+    aux (SigT x _, y) sc = aux (x,y) sc -- learn about kinds??
+    -- This matches *after* VarT so that we can compute a substitution
+    -- that includes the kind signature.
+    aux (x, SigT y _) sc = aux (x,y) sc
 
     aux _ sc = sc
 
