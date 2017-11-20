@@ -1258,6 +1258,10 @@ combineSubstitutions x y = Map.union (fmap (applySubstitution y) x) y
 
 -- | Compute the type variable substitution that unifies a list of types,
 -- or fail in 'Q'.
+--
+-- All infix issue should be resolved before using 'unifyTypes'
+--
+-- Alpha equivalent quantified types are not unified.
 unifyTypes :: [Type] -> Q (Map Name Type)
 unifyTypes [] = return Map.empty
 unifyTypes (t:ts) =
@@ -1280,20 +1284,23 @@ unify' :: Type -> Type -> Either (Type,Type) (Map Name Type)
 
 unify' (VarT n) (VarT m) | n == m = pure Map.empty
 unify' (VarT n) t | n `elem` freeVariables t = Left (VarT n, t)
-                  | otherwise                = pure (Map.singleton n t)
+                  | otherwise                = Right (Map.singleton n t)
 unify' t (VarT n) | n `elem` freeVariables t = Left (VarT n, t)
-                  | otherwise                = pure (Map.singleton n t)
-
-unify' (ConT n) (ConT m) | n == m = pure Map.empty
+                  | otherwise                = Right (Map.singleton n t)
 
 unify' (AppT f1 x1) (AppT f2 x2) =
   do sub1 <- unify' f1 f2
      sub2 <- unify' (applySubstitution sub1 x1) (applySubstitution sub1 x2)
-     return (combineSubstitutions sub1 sub2)
+     Right (combineSubstitutions sub1 sub2)
 
-unify' (TupleT n) (TupleT m) | n == m = pure Map.empty
+-- Doesn't unify kind signatures
+unify' (SigT t _) u = unify' t u
+unify' t (SigT u _) = unify' t u
 
-unify' t u = Left (t,u)
+-- only non-recursive cases should remain at this point
+unify' t u
+  | t == u    = Right Map.empty
+  | otherwise = Left (t,u)
 
 
 -- | Construct an equality constraint. The implementation of 'Pred' varies
