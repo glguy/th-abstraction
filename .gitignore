@@ -28,6 +28,7 @@ cabal-dev
 .hsenv
 TAGS
 cabal.project.local
+cabal.project.local~
 cabal.sandbox.config
 codex.tags
 docs
