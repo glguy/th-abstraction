@@ -26,10 +26,8 @@ module Main (main) where
 import           Control.Monad (zipWithM_)
 #endif
 
-#if MIN_VERSION_template_haskell(2,8,0)
 import           Control.Monad (unless)
 import qualified Data.Map as Map
-#endif
 
 #if MIN_VERSION_base(4,7,0)
 import           Data.Type.Equality ((:~:)(..))
