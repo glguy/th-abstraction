@@ -77,6 +77,7 @@ main =
 #if MIN_VERSION_template_haskell(2,8,0)
      kindSubstTest
 #endif
+     regressionTest44
 
 adt1Test :: IO ()
 adt1Test =
@@ -606,3 +607,10 @@ kindSubstTest =
        checkFreeVars substTy [k2]
        [| return () |])
 #endif
+
+regressionTest44 :: IO ()
+regressionTest44 =
+  $(do intToInt <- [t| Int -> Int |]
+       unified  <- unifyTypes [intToInt, intToInt]
+       unless (Map.null unified) (fail "regression test for ticket #44 failed")
+       [| return () |])
