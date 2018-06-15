@@ -935,7 +935,15 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
 
     aux (VarT n,p) (subst, context) =
       case p of
-        VarT m | Map.notMember m subst -> (Map.insert m n subst, context)
+        VarT m | m == n  -> (subst, context)
+                   -- If the two variables are the same, don't bother extending
+                   -- the substitution. (This is purely an optimization.)
+               | Just n' <- Map.lookup m subst
+               , n == n' -> (subst, context)
+                   -- If a variable is already in a substitution and it maps
+                   -- to the variable that we are trying to unify with, then
+                   -- leave the context alone. (Not doing so caused #46.)
+               | Map.notMember m subst -> (Map.insert m n subst, context)
         _ -> (subst, equalPred (VarT n) p : context)
 
     aux (SigT x _, y) sc = aux (x,y) sc -- learn about kinds??

@@ -95,6 +95,9 @@ infixl 3 :&&:, :#%:
 
 data family FamLocalDec1 a
 data family FamLocalDec2 a b c
+
+data family   T46 a b c
+data instance T46 (f (p :: *)) (f p) q = MkT46 q
 #endif
 
 #if __GLASGOW_HASKELL__ >= 704

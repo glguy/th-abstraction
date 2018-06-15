@@ -1,5 +1,10 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix bug in which data family instances with duplicate occurrences of type
+  variables in the left-hand side would have redundant equality constraints
+  in their contexts.
+
 ## 0.2.6.0 -- 2017-09-04
 * Fix bug in which `applySubstitution` and `freeVariables` would ignore
   type variables in the kinds of type variable binders.
