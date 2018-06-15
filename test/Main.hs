@@ -62,6 +62,7 @@ main =
      famLocalDecTest1
      famLocalDecTest2
      recordFamTest
+     t46Test
 #endif
      fixityLookupTest
 #if __GLASGOW_HASKELL__ >= 704
@@ -511,6 +512,16 @@ recordFamTest :: IO ()
 recordFamTest =
   $(do info <- reifyRecord 'famRec1
        validateCI info gadtRecFamCI)
+
+t46Test :: IO ()
+t46Test =
+  $(do info <- reifyDatatype 'MkT46
+       case info of
+         DatatypeInfo { datatypeCons = [ConstructorInfo { constructorContext = ctxt }]} ->
+           unless (null ctxt) (fail "regression test for ticket #46 failed")
+         _ -> fail "T46 should have exactly one constructor"
+       [| return () |])
+
 #endif
 
 fixityLookupTest :: IO ()
