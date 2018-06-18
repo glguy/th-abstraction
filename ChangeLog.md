@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.7.0 -- 2018-06-17
 * Fix bug in which data family instances with duplicate occurrences of type
   variables in the left-hand side would have redundant equality constraints
   in their contexts.
