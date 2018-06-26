@@ -590,16 +590,7 @@ importedEqualityTest =
            , datatypeCons    =
                [ ConstructorInfo
                    { constructorName       = 'Refl
-                   , constructorVars       =
-# if MIN_VERSION_template_haskell(2,11,0)
-                                             [KindedTV k starK]
-# else
-                                             []
-# endif
-                     -- Unfortunately, due to #37, th-abstraction incorrectly
-                     -- concludes that k is existentially quantified on GHC
-                     -- 8.0 and later.
-
+                   , constructorVars       = []
                    , constructorContext    = [equalPred a b]
                    , constructorFields     = []
                    , constructorStrictness = []
