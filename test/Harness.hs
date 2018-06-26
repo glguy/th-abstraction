@@ -23,6 +23,8 @@ module Harness
 
 import           Control.Monad
 import qualified Data.Map as Map
+import           Data.Map (Map)
+import           Data.Maybe
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Datatype
 import           Language.Haskell.TH.Lib (starK)
@@ -75,13 +77,20 @@ equateCI con1 con2 =
 
      let sub1 = Map.fromList (zip (map tvName (constructorVars con2))
                                   (map VarT (map tvName (constructorVars con1))))
-         sub2 = Map.fromList (zip (freeVariables con2)
+         sub2 = Map.fromList (zip (freeVariables (map tvKind (constructorVars con2)))
+                                  (map VarT (freeVariables
+                                                 (map tvKind (constructorVars con1)))))
+         sub3 = Map.fromList (zip (freeVariables con2)
                                   (map VarT (freeVariables con1)))
-         sub  = sub1 `Map.union` sub2
+         sub  = Map.unions [sub1, sub2, sub3]
 
      zipWithM_ (equateCxt "constructorContext")
         (constructorContext con1)
         (applySubstitution sub (constructorContext con2))
+
+     check "constructorVars" id
+        (constructorVars con1)
+        (substIntoTyVarBndrs sub (constructorVars con2))
 
      check "constructorFields" id
         (constructorFields con1)
@@ -97,6 +106,21 @@ equateCI con1 con2 =
         NormalConstructor        -> NormalConstructor
         i@InfixConstructor{}     -> i
         RecordConstructor fields -> RecordConstructor $ map (mkName . nameBase) fields
+
+    -- Substitutes both type variable names and kinds.
+    substIntoTyVarBndrs :: Map Name Type -> [TyVarBndr] -> [TyVarBndr]
+    substIntoTyVarBndrs subst = map go
+      where
+        go (PlainTV n)    = PlainTV $ substName subst n
+        go (KindedTV n k) = KindedTV (substName subst n)
+                                     (applySubstitution subst k)
+
+        substName :: Map Name Type -> Name -> Name
+        substName subst n = fromMaybe n $ do
+          nty <- Map.lookup n subst
+          case nty of
+            VarT n' -> Just n'
+            _       -> Nothing
 
 equateStrictness :: FieldStrictness -> FieldStrictness -> Either String ()
 equateStrictness fs1 fs2 =

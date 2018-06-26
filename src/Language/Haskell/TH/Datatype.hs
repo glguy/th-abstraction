@@ -910,12 +910,13 @@ normalizeGadtC typename params tyvars context names innerType
        ConT innerTyCon :| ts | typename == innerTyCon ->
 
          let (substName, context1) = mergeArguments params ts
-             subst   = VarT <$> substName
-             tyvars' = [ tv | tv <- renamedTyvars, Map.notMember (tvName tv) subst ]
+             subst    = VarT <$> substName
+             exTyvars = [ tv | tv <- renamedTyvars, Map.notMember (tvName tv) subst ]
 
-             context2 = applySubstitution subst (context1 ++ renamedContext)
-             fields'  = applySubstitution subst renamedFields
-         in sequence [ ConstructorInfo name tyvars' context2
+             exTyvars' = substTyVarBndrs   subst exTyvars
+             context2  = applySubstitution subst (context1 ++ renamedContext)
+             fields'   = applySubstitution subst renamedFields
+         in sequence [ ConstructorInfo name exTyvars' context2
                                        fields' stricts <$> variantQ
                      | name <- names
                      , let variantQ = getVariant name
@@ -1258,6 +1259,14 @@ instance TypeSubstitution Kind where
   freeVariables _ = []
   applySubstitution _ k = k
 #endif
+
+-- | Substitutes into the kinds of type variable binders.
+-- Not capture-avoiding.
+substTyVarBndrs :: Map Name Type -> [TyVarBndr] -> [TyVarBndr]
+substTyVarBndrs subst = map go
+  where
+    go tvb@(PlainTV {}) = tvb
+    go (KindedTV n k)   = KindedTV n (applySubstitution subst k)
 
 ------------------------------------------------------------------------
 
