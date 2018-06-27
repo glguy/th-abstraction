@@ -1182,7 +1182,30 @@ freshenFreeVariables t =
 
 -- | Class for types that support type variable substitution.
 class TypeSubstitution a where
-  -- | Apply a type variable substitution
+  -- | Apply a type variable substitution.
+  --
+  -- Note that 'applySubstitution' is /not/ capture-avoiding. To illustrate
+  -- this, observe that if you call this function with the following
+  -- substitution:
+  --
+  -- * @b :-> a@
+  --
+  -- On the following 'Type':
+  --
+  -- * @forall a. b@
+  --
+  -- Then it will return:
+  --
+  -- * @forall a. a@
+  --
+  -- However, because the same @a@ type variable was used in the range of the
+  -- substitution as was bound by the @forall@, the substituted @a@ is now
+  -- captured by the @forall@, resulting in a completely different function.
+  --
+  -- For @th-abstraction@'s purposes, this is acceptable, as it usually only
+  -- deals with globally unique type variable 'Name's. If you use
+  -- 'applySubstitution' in a context where the 'Name's aren't globally unique,
+  -- however, be aware of this potential problem.
   applySubstitution :: Map Name Type -> a -> a
   -- | Compute the free type variables
   freeVariables     :: a -> [Name]
