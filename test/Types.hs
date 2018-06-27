@@ -1,4 +1,4 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, ScopedTypeVariables #-}
 
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE ConstraintKinds #-}
@@ -6,6 +6,10 @@
 
 #if MIN_VERSION_template_haskell(2,8,0)
 {-# Language PolyKinds #-}
+#endif
+
+#if __GLASGOW_HASKELL__ >= 800
+{-# Language TypeInType #-}
 #endif
 
 {-|
@@ -25,9 +29,13 @@ module Types where
 import GHC.Exts (Constraint)
 #endif
 
-import Language.Haskell.TH
+import Language.Haskell.TH hiding (Type)
 import Language.Haskell.TH.Datatype
 import Language.Haskell.TH.Lib (starK)
+
+#if __GLASGOW_HASKELL__ >= 800
+import Data.Kind
+#endif
 
 type Gadt1Int = Gadt1 Int
 
@@ -110,6 +118,13 @@ data PredSynT =
     PredSyn1 Int Int => MkPredSynT1 Int
   | PredSyn2 Int Int => MkPredSynT2 Int
   | PredSyn3 Int     => MkPredSynT3 Int
+#endif
+
+#if __GLASGOW_HASKELL__ >= 800
+data Prox (a :: k) = Prox
+
+data T48 :: Type -> Type where
+  MkT48 :: forall a (x :: a). Prox x -> T48 a
 #endif
 
 -- We must define these here due to Template Haskell staging restrictions

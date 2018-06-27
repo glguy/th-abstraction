@@ -76,6 +76,9 @@ main =
 #if MIN_VERSION_template_haskell(2,8,0)
      kindSubstTest
 #endif
+#if __GLASGOW_HASKELL__ >= 800
+     polyKindedExTyvarTest
+#endif
      regressionTest44
 
 adt1Test :: IO ()
@@ -215,7 +218,7 @@ showableTest =
            , datatypeCons    =
                [ ConstructorInfo
                    { constructorName       = 'Showable
-                   , constructorVars       = [PlainTV a]
+                   , constructorVars       = [KindedTV a starK]
                    , constructorContext    = [classPred ''Show [VarT a]]
                    , constructorFields     = [VarT a]
                    , constructorStrictness = [notStrictAnnot]
@@ -427,7 +430,7 @@ gadtFamTest =
                    , constructorVariant    = NormalConstructor }
                , ConstructorInfo
                    { constructorName       = '(:&&:)
-                   , constructorVars       = [PlainTV e]
+                   , constructorVars       = [KindedTV e starK]
                    , constructorContext    = [equalPred cTy (AppT ListT eTy)]
                    , constructorFields     = [eTy,dTy]
                    , constructorStrictness = [notStrictAnnot, notStrictAnnot]
@@ -453,7 +456,7 @@ gadtFamTest =
                    , constructorVariant    = NormalConstructor }
                , ConstructorInfo
                    { constructorName       = 'MkGadtFam5
-                   , constructorVars       = [PlainTV q]
+                   , constructorVars       = [KindedTV q starK]
                    , constructorContext    = [ equalPred cTy (ConT ''Bool)
                                              , equalPred dTy (ConT ''Bool)
                                              , equalPred qTy (ConT ''Char)
@@ -587,8 +590,15 @@ importedEqualityTest =
            , datatypeCons    =
                [ ConstructorInfo
                    { constructorName       = 'Refl
-                   , constructorVars       = [KindedTV k starK]
-                     -- This shouldn't happen, ideally. See #37.
+                   , constructorVars       =
+# if MIN_VERSION_template_haskell(2,11,0)
+                                             [KindedTV k starK]
+# else
+                                             []
+# endif
+                     -- Unfortunately, due to #37, th-abstraction incorrectly
+                     -- concludes that k is existentially quantified on GHC
+                     -- 8.0 and later.
 
                    , constructorContext    = [equalPred a b]
                    , constructorFields     = []
@@ -615,6 +625,42 @@ kindSubstTest =
        checkFreeVars ty      [k1]
        checkFreeVars substTy [k2]
        [| return () |])
+#endif
+
+#if __GLASGOW_HASKELL__ >= 800
+polyKindedExTyvarTest :: IO ()
+polyKindedExTyvarTest =
+  $(do info <- reifyDatatype ''T48
+       let [a,x] = map mkName ["a","x"]
+       validateDI info
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''T48
+           , datatypeVars    = [SigT (VarT a) starK]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT48
+                   , constructorVars       = [KindedTV x (VarT a)]
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Prox `AppT` VarT x]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
+           }
+       -- Because validateCI uses a type variable substitution to normalize
+       -- away any alpha-renaming differences between constructors, it
+       -- unfortunately does not check if the uses of `a` in datatypeVars and
+       -- constructorVars are the same. We perform this check explicitly here.
+       case info of
+         DatatypeInfo { datatypeVars = [SigT (VarT a1) starK]
+                      , datatypeCons =
+                          [ ConstructorInfo
+                              { constructorVars = [KindedTV _ (VarT a2)] } ] } ->
+           unless (a1 == a2) $
+             fail $ "Two occurrences of the same variable have different names: "
+                 ++ show [a1, a2]
+       [| return () |]
+   )
 #endif
 
 regressionTest44 :: IO ()
