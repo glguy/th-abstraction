@@ -77,6 +77,7 @@ main =
      kindSubstTest
 #endif
 #if __GLASGOW_HASKELL__ >= 800
+     t37Test
      polyKindedExTyvarTest
 #endif
      regressionTest44
@@ -619,6 +620,27 @@ kindSubstTest =
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800
+t37Test :: IO ()
+t37Test =
+  $(do info <- reifyDatatype ''T37
+       let [k,a] = map (VarT . mkName) ["k","a"]
+       validateDI info
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''T37
+           , datatypeVars    = [SigT k starK, SigT a k]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT37
+                   , constructorVars       = []
+                   , constructorContext    = [equalPred k (ConT ''Bool)]
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+
 polyKindedExTyvarTest :: IO ()
 polyKindedExTyvarTest =
   $(do info <- reifyDatatype ''T48
