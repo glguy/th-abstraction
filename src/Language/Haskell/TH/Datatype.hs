@@ -117,7 +117,7 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.List (nub, nubBy, find, union, (\\))
+import           Data.List (nub, find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
@@ -1000,8 +1000,8 @@ closeOverKinds domainFVKinds rangeFVKinds = go
                  then (Map.empty, [])
                  else go (kindSubst, kindContext)
           finalSubst   = Map.unions [subst, kindSubst, restSubst]
-          finalContext = nubBy eqPred $ concat [context, kindContext, restContext]
-            -- Use `nubBy eqPred` here in an effort to minimize the number of
+          finalContext = nub $ concat [context, kindContext, restContext]
+            -- Use `nub` here in an effort to minimize the number of
             -- redundant equality constraints in the returned context.
       in (finalSubst, finalContext)
 
@@ -1492,17 +1492,6 @@ classPred =
 #else
   ClassP
 #endif
-
--- Attempts to be somewhat more intelligent than Pred's Eq instance in that
--- it recognizes the symmetry of equality. For example, eqPred would consider
--- the predicates (a ~ Int) and (Int ~ a) to be equal.
-eqPred :: Pred -> Pred -> Bool
-eqPred p1 p2
-  | Just (x1, y1) <- asEqualPred p1
-  , Just (x2, y2) <- asEqualPred p2
-  = (x1 == x2 && y1 == y2) || (x1 == y2 && x2 == y1)
-  | otherwise
-  = p1 == p2
 
 -- | Match a 'Pred' representing an equality constraint. Returns
 -- arguments to the equality constraint if successful.
