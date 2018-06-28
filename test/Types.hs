@@ -68,10 +68,10 @@ data VoidStoS (f :: * -> *)
 
 data StrictDemo = StrictDemo Int !Int {-# UNPACK #-} !Int
 
-#if MIN_VERSION_template_haskell(2,7,0)
-
 -- Data families
+data family T43Fam
 
+#if MIN_VERSION_template_haskell(2,7,0)
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 

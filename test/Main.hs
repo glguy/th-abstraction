@@ -53,6 +53,9 @@ main =
      voidstosTest
      strictDemoTest
      recordVanillaTest
+#if MIN_VERSION_template_haskell(2,6,0)
+     t43Test
+#endif
 #if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
      ghc78bugTest
@@ -321,6 +324,47 @@ recordVanillaTest :: IO ()
 recordVanillaTest =
   $(do info <- reifyRecord 'gadtrec1a
        validateCI info gadtRecVanillaCI)
+
+#if MIN_VERSION_template_haskell(2,6,0)
+t43Test :: IO ()
+t43Test =
+  $(do [decPlain] <- [d| data T43Plain where MkT43Plain :: T43Plain |]
+       infoPlain  <- normalizeDec decPlain
+       validateDI infoPlain
+         DatatypeInfo
+           { datatypeName    = mkName "T43Plain"
+           , datatypeContext = []
+           , datatypeVars    = []
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkT43Plain"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+
+       [decFam] <- [d| data instance T43Fam where  MkT43Fam :: T43Fam |]
+       infoFam  <- normalizeDec decFam
+       validateDI infoFam
+         DatatypeInfo
+           { datatypeName    = mkName "T43Fam"
+           , datatypeContext = []
+           , datatypeVars    = []
+           , datatypeVariant = DataInstance
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkT43Fam"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+#endif
 
 #if MIN_VERSION_template_haskell(2,7,0)
 dataFamilyTest :: IO ()
