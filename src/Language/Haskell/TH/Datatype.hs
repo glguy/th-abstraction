@@ -776,16 +776,9 @@ normalizeConFor reifiedDec typename params variant = fmap (map giveTyVarBndrsSta
                        -> ConstructorVariant
                        -> Q [ConstructorInfo]
           dataFamCase' n tyvars stricts variant = do
-            info <- reifyRecover n $ fail $ unlines
-                      [ "normalizeCon: Cannot reify constructor " ++ nameBase n
-                      , "You are likely calling normalizeDec on GHC 7.6 or 7.8 on a data family"
-                      , "whose type variables have been eta-reduced due to GHC Trac #9692."
-                      , "Unfortunately, without being able to reify the constructor's type,"
-                      , "there is no way to recover the eta-reduced type variables in general."
-                      , "A recommended workaround is to use reifyDatatype instead."
-                      ]
-            case info of
-              DataConI _ ty _ _ -> do
+            mbInfo <- reifyMaybe n
+            case mbInfo of
+              Just (DataConI _ ty _ _) -> do
                 let (context, argTys :|- returnTy) = uncurryType ty
                 returnTy' <- resolveTypeSynonyms returnTy
                 -- Notice that we've ignored the Cxt and argument Types from the
@@ -800,7 +793,14 @@ normalizeConFor reifiedDec typename params variant = fmap (map giveTyVarBndrsSta
                 -- much easier.
                 normalizeGadtC typename params tyvars context [n]
                                returnTy' argTys stricts (const $ return variant)
-              _ -> fail "normalizeCon: impossible"
+              _ -> fail $ unlines
+                     [ "normalizeCon: Cannot reify constructor " ++ nameBase n
+                     , "You are likely calling normalizeDec on GHC 7.6 or 7.8 on a data family"
+                     , "whose type variables have been eta-reduced due to GHC Trac #9692."
+                     , "Unfortunately, without being able to reify the constructor's type,"
+                     , "there is no way to recover the eta-reduced type variables in general."
+                     , "A recommended workaround is to use reifyDatatype instead."
+                     ]
 
           -- A very ad hoc way of determining if we need to perform some extra passes
           -- to repair an eta-reduction bug for data family instances that only occurs
@@ -963,10 +963,9 @@ resolveTypeSynonyms t =
 
   case f of
     ConT n ->
-      do info <- reifyRecover n $ fail
-                   "resolveTypeSynonyms: Cannot reify type synonym information"
-         case info of
-           TyConI (TySynD _ synvars def)
+      do mbInfo <- reifyMaybe n
+         case mbInfo of
+           Just (TyConI (TySynD _ synvars def))
              -> resolveTypeSynonyms $ expandSynonymRHS synvars xs def
            _ -> notTypeSynCase
     _ -> notTypeSynCase
@@ -988,10 +987,9 @@ resolvePredSynonyms :: Pred -> Q Pred
 resolvePredSynonyms = resolveTypeSynonyms
 #else
 resolvePredSynonyms (ClassP n ts) = do
-  info <- reifyRecover n $ fail
-            "resolvePredSynonyms: Cannot reify type synonym information"
-  case info of
-    TyConI (TySynD _ synvars def)
+  mbInfo <- reifyMaybe n
+  case mbInfo of
+    Just (TyConI (TySynD _ synvars def))
       -> resolvePredSynonyms $ typeToPred $ expandSynonymRHS synvars ts def
     _ -> ClassP n <$> mapM resolveTypeSynonyms ts
 resolvePredSynonyms (EqualP t1 t2) = do
@@ -1556,9 +1554,7 @@ reifyFixityCompat n = recover (return Nothing) $
        _                     -> Nothing
 #endif
 
--- | Call 'reify' with an action to take if reification fails.
-reifyRecover ::
-  Name ->
-  Q Info {- ^ handle failure -} ->
-  Q Info
-reifyRecover n failure = failure `recover` reify n
+-- | Call 'reify' and return @'Just' info@ if successful or 'Nothing' if
+-- reification failed.
+reifyMaybe :: Name -> Q (Maybe Info)
+reifyMaybe n = return Nothing `recover` fmap Just (reify n)
