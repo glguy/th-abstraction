@@ -1,5 +1,24 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* GADT reification is now much more robust with respect to `PolyKinds`:
+  * A bug in which universally quantified kind variables were mistakenly
+    flagged as existential has been fixed.
+  * A bug in which the kinds of existentially quantified type variables
+    were not substituted properly has been fixed.
+  * More kind equalities are detected than before. For example, in the
+    following data type:
+
+    ```haskell
+    data T (a :: k) where
+      MkT :: forall (a :: Bool). T a
+    ```
+
+    We now catch the `k ~ Bool` equality.
+* Tweak `resolveTypeSynonyms` so that failing to reify a type constructor
+  name so longer results in an error. Among other benefits, this makes
+  it possible to pass data types with GADT syntax to `normalizeDec`.
+
 ## 0.2.7.0 -- 2018-06-17
 * Fix bug in which data family instances with duplicate occurrences of type
   variables in the left-hand side would have redundant equality constraints
