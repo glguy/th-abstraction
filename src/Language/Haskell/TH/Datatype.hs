@@ -909,7 +909,10 @@ normalizeGadtC typename params tyvars context names innerType
      case decomposeType innerType' of
        ConT innerTyCon :| ts | typename == innerTyCon ->
 
-         let (substName, context1) = mergeArguments params ts
+         let (substName, context1) =
+               closeOverKinds (kindsOfFVsOfTvbs renamedTyvars)
+                              (kindsOfFVsOfTypes params)
+                              (mergeArguments params ts)
              subst    = VarT <$> substName
              exTyvars = [ tv | tv <- renamedTyvars, Map.notMember (tvName tv) subst ]
 
@@ -923,6 +926,120 @@ normalizeGadtC typename params tyvars context names innerType
                      ]
 
        _ -> fail "normalizeGadtC: Expected type constructor application"
+
+{-
+Extend a type variable renaming subtitution and a list of equality
+predicates by looking into kind information as much as possible.
+
+Why is this necessary? Consider the following example:
+
+  data (a1 :: k1) :~: (b1 :: k1) where
+    Refl :: forall k2 (a2 :: k2). a2 :~: a2
+
+After an initial call to mergeArguments, we will have the following
+substitution and context:
+
+* Substitution: [a2 :-> a1]
+* Context: (a2 ~ b1)
+
+We shouldn't stop there, however! We determine the existentially quantified
+type variables of a constructor by filtering out those constructor-bound
+variables which do not appear in the substitution that mergeArguments
+returns. In this example, Refl's bound variables are k2 and a2. a2 appears
+in the returned substitution, but k2 does not, which means that we would
+mistakenly conclude that k2 is existential!
+
+Although we don't have the full power of kind inference to guide us here, we
+can at least do the next best thing. Generally, the datatype-bound type
+variables and the constructor type variable binders contain all of the kind
+information we need, so we proceed as follows:
+
+1. Construct a map from each constructor-bound variable to its kind. (Do the
+   same for each datatype-bound variable). These maps are the first and second
+   arguments to closeOverKinds, respectively.
+2. Call mergeArguments once on the GADT return type and datatype-bound types,
+   and pass that in as the third argument to closeOverKinds.
+3. For each name-name pair in the supplied substitution, check if the first and
+   second names map to kinds in the first and second kind maps in
+   closeOverKinds, respectively. If so, associate the first kind with the
+   second kind.
+4. For each kind association discovered in part (3), call mergeArguments
+   on the lists of kinds. This will yield a kind substitution and kind
+   equality context.
+5. If the kind substitution is non-empty, then go back to step (3) and repeat
+   the process on the new kind substitution and context.
+
+   Otherwise, if the kind substitution is empty, then we have reached a fixed-
+   point (i.e., we have closed over the kinds), so proceed.
+6. Union up all of the substitutions and contexts, and return those.
+
+This algorithm is not perfect, as it will only catch everything if all of
+the kinds are explicitly mentioned somewhere (and not left quantified
+implicitly). Thankfully, reifying data types via Template Haskell tends to
+yield a healthy amount of kind signatures, so this works quite well in
+practice.
+-}
+closeOverKinds :: Map Name Kind
+               -> Map Name Kind
+               -> (Map Name Name, Cxt)
+               -> (Map Name Name, Cxt)
+closeOverKinds domainFVKinds rangeFVKinds = go
+  where
+    go :: (Map Name Name, Cxt) -> (Map Name Name, Cxt)
+    go (subst, context) =
+      let substList = Map.toList subst
+          (kindsInner, kindsOuter) =
+            unzip $
+            mapMaybe (\(d, r) -> do d' <- Map.lookup d domainFVKinds
+                                    r' <- Map.lookup r rangeFVKinds
+                                    return (d', r'))
+                     substList
+          (kindSubst, kindContext) = mergeArgumentKinds kindsOuter kindsInner
+          (restSubst, restContext)
+            = if Map.null kindSubst -- Fixed-point calculation
+                 then (Map.empty, [])
+                 else go (kindSubst, kindContext)
+          finalSubst   = Map.unions [subst, kindSubst, restSubst]
+          finalContext = nub $ concat [context, kindContext, restContext]
+            -- Use `nub` here in an effort to minimize the number of
+            -- redundant equality constraints in the returned context.
+      in (finalSubst, finalContext)
+
+-- Look into a list of types and map each free variable name to its kind.
+kindsOfFVsOfTypes :: [Type] -> Map Name Kind
+kindsOfFVsOfTypes = foldMap go
+  where
+    go :: Type -> Map Name Kind
+    go (ForallT {}) = error "`forall` type used in data family pattern"
+    go (AppT t1 t2) = go t1 `Map.union` go t2
+    go (SigT t k) =
+      let kSigs =
+#if MIN_VERSION_template_haskell(2,8,0)
+                  go k
+#else
+                  Map.empty
+#endif
+      in case t of
+           VarT n -> Map.insert n k kSigs
+           _      -> go t `Map.union` kSigs
+    go _ = Map.empty
+
+-- Look into a list of type variable binder and map each free variable name
+-- to its kind (also map the names that KindedTVs bind to their respective
+-- kinds). This function considers the kind of a PlainTV to be *.
+kindsOfFVsOfTvbs :: [TyVarBndr] -> Map Name Kind
+kindsOfFVsOfTvbs = foldMap go
+  where
+    go :: TyVarBndr -> Map Name Kind
+    go (PlainTV n) = Map.singleton n starK
+    go (KindedTV n k) =
+      let kSigs =
+#if MIN_VERSION_template_haskell(2,8,0)
+                  kindsOfFVsOfTypes [k]
+#else
+                  Map.empty
+#endif
+      in Map.insert n k kSigs
 
 mergeArguments ::
   [Type] {- ^ outer parameters                    -} ->
@@ -953,6 +1070,19 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
     aux (x, SigT y _) sc = aux (x,y) sc
 
     aux _ sc = sc
+
+-- | A specialization of 'mergeArguments' to 'Kind'.
+-- Needed only for backwards compatibility with older versions of
+-- @template-haskell@.
+mergeArgumentKinds ::
+  [Kind] ->
+  [Kind] ->
+  (Map Name Name, Cxt)
+#if MIN_VERSION_template_haskell(2,8,0)
+mergeArgumentKinds = mergeArguments
+#else
+mergeArgumentKinds _ _ = (Map.empty, [])
+#endif
 
 -- | Expand all of the type synonyms in a type.
 resolveTypeSynonyms :: Type -> Q Type
@@ -1360,7 +1490,6 @@ classPred =
 #else
   ClassP
 #endif
-
 
 -- | Match a 'Pred' representing an equality constraint. Returns
 -- arguments to the equality constraint if successful.

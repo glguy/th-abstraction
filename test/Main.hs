@@ -80,6 +80,7 @@ main =
      kindSubstTest
 #endif
 #if __GLASGOW_HASKELL__ >= 800
+     t37Test
      polyKindedExTyvarTest
 #endif
      regressionTest44
@@ -634,16 +635,7 @@ importedEqualityTest =
            , datatypeCons    =
                [ ConstructorInfo
                    { constructorName       = 'Refl
-                   , constructorVars       =
-# if MIN_VERSION_template_haskell(2,11,0)
-                                             [KindedTV k starK]
-# else
-                                             []
-# endif
-                     -- Unfortunately, due to #37, th-abstraction incorrectly
-                     -- concludes that k is existentially quantified on GHC
-                     -- 8.0 and later.
-
+                   , constructorVars       = []
                    , constructorContext    = [equalPred a b]
                    , constructorFields     = []
                    , constructorStrictness = []
@@ -672,6 +664,61 @@ kindSubstTest =
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800
+t37Test :: IO ()
+t37Test =
+  $(do infoA <- reifyDatatype ''T37a
+       let [k,a] = map (VarT . mkName) ["k","a"]
+       validateDI infoA
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''T37a
+           , datatypeVars    = [SigT k starK, SigT a k]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT37a
+                   , constructorVars       = []
+                   , constructorContext    = [equalPred k (ConT ''Bool)]
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+
+       infoB <- reifyDatatype ''T37b
+       validateDI infoB
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''T37b
+           , datatypeVars    = [SigT a k]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT37b
+                   , constructorVars       = []
+                   , constructorContext    = [equalPred k (ConT ''Bool)]
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+
+       infoC <- reifyDatatype ''T37c
+       validateDI infoC
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName    = ''T37c
+           , datatypeVars    = [SigT a k]
+           , datatypeVariant = Datatype
+           , datatypeCons    =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT37c
+                   , constructorVars       = []
+                   , constructorContext    = [equalPred a (ConT ''Bool)]
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+
 polyKindedExTyvarTest :: IO ()
 polyKindedExTyvarTest =
   $(do info <- reifyDatatype ''T48
