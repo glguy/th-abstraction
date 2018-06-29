@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.8.0 -- 2018-06-29
 * GADT reification is now much more robust with respect to `PolyKinds`:
   * A bug in which universally quantified kind variables were mistakenly
     flagged as existential has been fixed.
