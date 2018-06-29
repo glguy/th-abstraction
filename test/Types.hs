@@ -121,8 +121,14 @@ data PredSynT =
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800
-data T37 (k :: Type) :: k -> Type where
-  MkT37 :: T37 Bool a
+data T37a (k :: Type) :: k -> Type where
+  MkT37a :: T37a Bool a
+
+data T37b (a :: k) where
+  MkT37b :: forall (a :: Bool). T37b a
+
+data T37c (a :: k) where
+  MkT37c :: T37c Bool
 
 data Prox (a :: k) = Prox
 
