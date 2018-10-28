@@ -15,7 +15,9 @@ module Language.Haskell.TH.Datatype.Internal where
 import Language.Haskell.TH.Syntax
 
 eqTypeName :: Name
-#if MIN_VERSION_base(4,9,0)
+#if MIN_VERSION_base(4,9,0) && __GLASGOW_HASKELL__ < 807
+  -- TODO: Replace __GLASGOW_HASKELL__ < 807 with
+  -- !(MIN_VERSION_base(4,13,0)) once base-4.13 exists
 eqTypeName = mkNameG_tc "base" "Data.Type.Equality" "~"
 #else
 eqTypeName = mkNameG_tc "ghc-prim" "GHC.Types" "~"

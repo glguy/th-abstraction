@@ -1,5 +1,8 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix a bug in which `asEqualPred` would return incorrect results with GHC 8.7.
+
 ## 0.2.8.0 -- 2018-06-29
 * GADT reification is now much more robust with respect to `PolyKinds`:
   * A bug in which universally quantified kind variables were mistakenly
