@@ -78,6 +78,7 @@ module Language.Haskell.TH.Datatype
   -- * Type variable manipulation
   , TypeSubstitution(..)
   , quantifyType
+  , toposortTyVarsOf
   , freshenFreeVariables
 
   -- * 'Pred' functions
@@ -117,6 +118,7 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
+import           Data.Graph
 import           Data.List (nub, find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -136,6 +138,7 @@ import           GHC.Generics (Generic)
 
 #if !MIN_VERSION_base(4,8,0)
 import           Control.Applicative (Applicative(..), (<$>))
+import           Data.Monoid (Monoid(..))
 #endif
 
 -- | Normalized information about newtypes and data types.
@@ -1294,11 +1297,85 @@ conHasRecord recName info =
 -- contrast with being dependent upon the Ord instance for 'Name')
 quantifyType :: Type -> Type
 quantifyType t
-  | null vs   = t
-  | otherwise = ForallT (PlainTV <$> vs) [] t
+  | null tvbs = t
+  | otherwise = ForallT tvbs [] t
   where
-    vs = freeVariables t
+    tvbs = toposortTyVarsOf [t]
 
+-- | Take a list of 'Type's, find their free variables, and sort them in
+-- reverse topological order to ensure that they are well scoped.
+--
+-- On older GHCs, this takes measures to avoid returning explicitly bound
+-- kind variables, which was not possible before @TypeInType@.
+toposortTyVarsOf :: [Type] -> [TyVarBndr]
+toposortTyVarsOf tys =
+  let fvs :: [Name]
+      fvs = freeVariables tys
+
+      varKindSigs :: Map Name Kind
+      varKindSigs = foldMap go_ty tys
+        where
+          go_ty :: Type -> Map Name Kind
+          go_ty (ForallT tvbs ctxt t) =
+            foldr (\tvb -> Map.delete (tvName tvb))
+                  (foldMap go_pred ctxt `mappend` go_ty t) tvbs
+          go_ty (AppT t1 t2) = go_ty t1 `mappend` go_ty t2
+          go_ty (SigT t k) =
+            let kSigs =
+#if MIN_VERSION_template_haskell(2,8,0)
+                  go_ty k
+#else
+                  mempty
+#endif
+            in case t of
+                 VarT n -> Map.insert n k kSigs
+                 _      -> go_ty t `mappend` kSigs
+          go_ty _ = mempty
+
+          go_pred :: Pred -> Map Name Kind
+#if MIN_VERSION_template_haskell(2,10,0)
+          go_pred = go_ty
+#else
+          go_pred (ClassP _ ts)  = foldMap go_ty ts
+          go_pred (EqualP t1 t2) = go_ty t1 `mappend` go_ty t2
+#endif
+
+      (g, gLookup, _)
+        = graphFromEdges [ (fv, fv, kindVars)
+                         | fv <- fvs
+                         , let kindVars =
+                                 case Map.lookup fv varKindSigs of
+                                   Nothing -> []
+                                   Just ks -> freeVariables ks
+                         ]
+      tg = reverse $ topSort g
+
+      lookupVertex x =
+        case gLookup x of
+          (n, _, _) -> n
+
+      ascribeWithKind n
+        | Just k <- Map.lookup n varKindSigs
+        = KindedTV n k
+        | otherwise
+        = PlainTV n
+
+      -- An annoying wrinkle: GHCs before 8.0 don't support explicitly
+      -- quantifying kinds, so something like @forall k (a :: k)@ would be
+      -- rejected. To work around this, we filter out any binders whose names
+      -- also appear in a kind on old GHCs.
+      isKindBinderOnOldGHCs
+#if __GLASGOW_HASKELL__ >= 800
+        = const False
+#else
+        = (`elem` kindVars)
+          where
+            kindVars = freeVariables $ Map.elems varKindSigs
+#endif
+
+  in map ascribeWithKind $
+     filter (not . isKindBinderOnOldGHCs) $
+     map lookupVertex tg
 
 -- | Substitute all of the free variables in a type with fresh ones
 freshenFreeVariables :: Type -> Q Type
