@@ -42,21 +42,26 @@ validate equate x y = either fail (\_ -> [| return () |]) (equate x y)
 -- otherwise return a string exlaining the mismatch.
 equateDI :: DatatypeInfo -> DatatypeInfo -> Either String ()
 equateDI dat1 dat2 =
-  do check "datatypeName"     (nameBase . datatypeName) dat1 dat2
-     check "datatypeVars len" (length . datatypeVars)   dat1 dat2
-     check "datatypeVariant"  datatypeVariant           dat1 dat2
-     check "datatypeCons len" (length . datatypeCons)   dat1 dat2
+  do check "datatypeName"          (nameBase . datatypeName)    dat1 dat2
+     check "datatypeVars len"      (length . datatypeVars)      dat1 dat2
+     check "datatypeInstTypes len" (length . datatypeInstTypes) dat1 dat2
+     check "datatypeVariant"       datatypeVariant              dat1 dat2
+     check "datatypeCons len"      (length . datatypeCons)      dat1 dat2
 
-     let sub = Map.fromList (zip (freeVariables (datatypeVars dat2))
-                                 (map VarT (freeVariables (datatypeVars dat1))))
+     let sub = Map.fromList (zip (freeVariables (bndrParams (datatypeVars dat2)))
+                                 (map VarT (freeVariables (bndrParams (datatypeVars dat1)))))
+
+     check "datatypeVars" id
+       (datatypeVars dat1)
+       (substIntoTyVarBndrs sub (datatypeVars dat2))
+
+     check "datatypeInstTypes" id
+       (datatypeInstTypes dat1)
+       (applySubstitution sub (datatypeInstTypes dat2))
 
      zipWithM_ (equateCxt "datatypeContext")
        (datatypeContext dat1)
        (applySubstitution sub (datatypeContext dat2))
-
-     check "datatypeVars" id
-       (datatypeVars dat1)
-       (applySubstitution sub (datatypeVars dat2))
 
      zipWithM_ equateCI
        (datatypeCons dat1)
@@ -75,14 +80,11 @@ equateCI con1 con2 =
   do check "constructorName"       (nameBase . constructorName) con1 con2
      check "constructorVariant"    constructorVariantBase       con1 con2
 
-     let sub1 = Map.fromList (zip (map tvName (constructorVars con2))
-                                  (map VarT (map tvName (constructorVars con1))))
-         sub2 = Map.fromList (zip (freeVariables (map tvKind (constructorVars con2)))
-                                  (map VarT (freeVariables
-                                                 (map tvKind (constructorVars con1)))))
-         sub3 = Map.fromList (zip (freeVariables con2)
+     let sub1 = Map.fromList (zip (freeVariables (bndrParams (constructorVars con2)))
+                                  (map VarT (freeVariables (bndrParams (constructorVars con1)))))
+         sub2 = Map.fromList (zip (freeVariables con2)
                                   (map VarT (freeVariables con1)))
-         sub  = Map.unions [sub1, sub2, sub3]
+         sub  = Map.unions [sub1, sub2]
 
      zipWithM_ (equateCxt "constructorContext")
         (constructorContext con1)
@@ -107,20 +109,26 @@ equateCI con1 con2 =
         i@InfixConstructor{}     -> i
         RecordConstructor fields -> RecordConstructor $ map (mkName . nameBase) fields
 
-    -- Substitutes both type variable names and kinds.
-    substIntoTyVarBndrs :: Map Name Type -> [TyVarBndr] -> [TyVarBndr]
-    substIntoTyVarBndrs subst = map go
-      where
-        go (PlainTV n)    = PlainTV $ substName subst n
-        go (KindedTV n k) = KindedTV (substName subst n)
-                                     (applySubstitution subst k)
+-- Substitutes both type variable names and kinds.
+substIntoTyVarBndrs :: Map Name Type -> [TyVarBndr] -> [TyVarBndr]
+substIntoTyVarBndrs subst = map go
+  where
+    go (PlainTV n)    = PlainTV $ substName subst n
+    go (KindedTV n k) = KindedTV (substName subst n)
+                                 (applySubstitution subst k)
 
-        substName :: Map Name Type -> Name -> Name
-        substName subst n = fromMaybe n $ do
-          nty <- Map.lookup n subst
-          case nty of
-            VarT n' -> Just n'
-            _       -> Nothing
+    substName :: Map Name Type -> Name -> Name
+    substName subst n = fromMaybe n $ do
+      nty <- Map.lookup n subst
+      case nty of
+        VarT n' -> Just n'
+        _       -> Nothing
+
+bndrParams :: [TyVarBndr] -> [Type]
+bndrParams = map $ \bndr ->
+  case bndr of
+    KindedTV t k -> SigT (VarT t) k
+    PlainTV  t   -> VarT t
 
 equateStrictness :: FieldStrictness -> FieldStrictness -> Either String ()
 equateStrictness fs1 fs2 =
