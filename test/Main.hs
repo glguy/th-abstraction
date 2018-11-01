@@ -78,6 +78,7 @@ main =
 #endif
 #if MIN_VERSION_template_haskell(2,8,0)
      kindSubstTest
+     t59Test
 #endif
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
@@ -660,6 +661,27 @@ kindSubstTest =
 
        checkFreeVars ty      [k1]
        checkFreeVars substTy [k2]
+       [| return () |])
+
+t59Test :: IO ()
+t59Test =
+  $(do k <- newName "k"
+       a <- newName "a"
+       let proxyAK  = ConT (mkName "Proxy") `AppT` SigT (VarT a) (VarT k)
+                        -- Proxy (a :: k)
+           expected = ForallT
+#if __GLASGOW_HASKELL__ >= 800
+                        [PlainTV k, KindedTV a (VarT k)]
+#else
+                        [KindedTV a (VarT k)]
+#endif
+                        [] proxyAK
+           actual = quantifyType proxyAK
+       unless (expected == actual) $
+         fail $ "quantifyType does not respect dependency order: "
+             ++ unlines [ "Expected: " ++ pprint expected
+                        , "Actual:   " ++ pprint actual
+                        ]
        [| return () |])
 #endif
 
