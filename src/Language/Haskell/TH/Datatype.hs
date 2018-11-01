@@ -78,7 +78,7 @@ module Language.Haskell.TH.Datatype
   -- * Type variable manipulation
   , TypeSubstitution(..)
   , quantifyType
-  , toposortTyVarsOf
+  , freeVariablesWellScoped
   , freshenFreeVariables
 
   -- * 'Pred' functions
@@ -1300,15 +1300,34 @@ quantifyType t
   | null tvbs = t
   | otherwise = ForallT tvbs [] t
   where
-    tvbs = toposortTyVarsOf [t]
+    tvbs = freeVariablesWellScoped [t]
 
--- | Take a list of 'Type's, find their free variables, and sort them in
--- reverse topological order to ensure that they are well scoped.
+-- | Take a list of 'Type's, find their free variables, and sort them
+-- according to dependency order.
+--
+-- As an example of how this function works, consider the following type:
+--
+-- @
+-- Proxy (a :: k)
+-- @
+--
+-- Calling 'freeVariables' on this type would yield @[a, k]@, since that is
+-- the order in which those variables appear in a left-to-right fashion. But
+-- this order does not preserve the fact that @k@ is the kind of @a@. Moreover,
+-- if you tried writing the type @forall a k. Proxy (a :: k)@, GHC would reject
+-- this, since GHC would demand that @k@ come before @a@.
+--
+-- 'freeVariablesWellScoped' orders the free variables of a type in a way that
+-- preserves this dependency ordering. If one were to call
+-- 'freeVariablesWellScoped' on the type above, it would return
+-- @[k, (a :: k)]@. (This is why 'freeVariablesWellScoped' returns a list of
+-- 'TyVarBndr's instead of 'Name's, since it must make it explicit that @k@
+-- is the kind of @a@.)
 --
 -- On older GHCs, this takes measures to avoid returning explicitly bound
 -- kind variables, which was not possible before @TypeInType@.
-toposortTyVarsOf :: [Type] -> [TyVarBndr]
-toposortTyVarsOf tys =
+freeVariablesWellScoped :: [Type] -> [TyVarBndr]
+freeVariablesWellScoped tys =
   let fvs :: [Name]
       fvs = freeVariables tys
 
