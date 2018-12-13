@@ -71,6 +71,8 @@ data StrictDemo = StrictDemo Int !Int {-# UNPACK #-} !Int
 -- Data families
 data family T43Fam
 
+type Id (a :: *) = a
+
 #if MIN_VERSION_template_haskell(2,7,0)
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
