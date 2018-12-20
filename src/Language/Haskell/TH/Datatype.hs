@@ -1342,8 +1342,12 @@ conHasRecord recName info =
 -- contrast with being dependent upon the Ord instance for 'Name')
 quantifyType :: Type -> Type
 quantifyType t
-  | null tvbs = t
-  | otherwise = ForallT tvbs [] t
+  | null tvbs
+  = t
+  | ForallT tvbs' ctxt' t' <- t -- Collapse two consecutive foralls (#63)
+  = ForallT (tvbs ++ tvbs') ctxt' t'
+  | otherwise
+  = ForallT tvbs [] t
   where
     tvbs = freeVariablesWellScoped [t]
 
