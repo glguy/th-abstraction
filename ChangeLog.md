@@ -1,12 +1,17 @@
 # Revision history for th-abstraction
 
 ## next -- ????-??-??
+* Fix a bug in which `resolveTypeSynonyms` would not look into `ForallT`s,
+  `SigT`s, `InfixT`s, or `ParensT`s.
 * Fix a bug in which `quantifyType` would not respect the dependency order of
   type variables (e.g., `Proxy (a :: k)` would have erroneously been quantified
   as `forall a k. Proxy (a :: k)`).
 * Fix a bug in which `asEqualPred` would return incorrect results with GHC 8.7.
 * Add a `freeVariablesWellScoped` function which computes the free variables of
   a list of types and sorts them according to dependency order.
+* Add a `resolveKindSynonyms` function which expands all type synonyms in a
+  `Kind`. This is mostly useful for supporting old GHCs where `Type` and `Kind`
+  were not the same.
 
 ## 0.2.8.0 -- 2018-06-29
 * GADT reification is now much more robust with respect to `PolyKinds`:

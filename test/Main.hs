@@ -79,6 +79,7 @@ main =
 #if MIN_VERSION_template_haskell(2,8,0)
      kindSubstTest
      t59Test
+     t61Test
 #endif
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
@@ -682,6 +683,37 @@ t59Test =
              ++ unlines [ "Expected: " ++ pprint expected
                         , "Actual:   " ++ pprint actual
                         ]
+       [| return () |])
+
+t61Test :: IO ()
+t61Test =
+  $(do let test :: Type -> Type -> Q ()
+           test orig expected = do
+             actual <- resolveTypeSynonyms orig
+             unless (expected == actual) $
+               fail $ "Type synonym expansion failed: "
+                   ++ unlines [ "Expected: " ++ pprint expected
+                              , "Actual:   " ++ pprint actual
+                              ]
+
+           idAppT = (ConT ''Id `AppT`)
+           a = mkName "a"
+       test (SigT (idAppT $ ConT ''Int) (idAppT StarT))
+            (SigT (ConT ''Int) StarT)
+#if MIN_VERSION_template_haskell(2,10,0)
+       test (ForallT [KindedTV a (idAppT StarT)]
+                     [idAppT (ConT ''Show `AppT` VarT a)]
+                     (idAppT $ VarT a))
+            (ForallT [KindedTV a StarT]
+                     [ConT ''Show `AppT` VarT a]
+                     (VarT a))
+#endif
+#if MIN_VERSION_template_haskell(2,11,0)
+       test (InfixT (idAppT $ ConT ''Int) ''Either (idAppT $ ConT ''Int))
+            (InfixT (ConT ''Int) ''Either (ConT ''Int))
+       test (ParensT (idAppT $ ConT ''Int))
+            (ConT ''Int)
+#endif
        [| return () |])
 #endif
 

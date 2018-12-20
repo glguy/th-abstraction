@@ -101,6 +101,7 @@ module Language.Haskell.TH.Datatype
 
   -- * Type simplification
   , resolveTypeSynonyms
+  , resolveKindSynonyms
   , resolvePredSynonyms
   , resolveInfixT
 
@@ -1088,20 +1089,61 @@ mergeArgumentKinds _ _ = (Map.empty, [])
 #endif
 
 -- | Expand all of the type synonyms in a type.
+--
+-- Note that this function will drop parentheses as a side effect.
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
   let f :| xs = decomposeType t
 
-      notTypeSynCase = foldl AppT f <$> mapM resolveTypeSynonyms xs in
+      notTypeSynCase :: Type -> Q Type
+      notTypeSynCase ty = foldl AppT ty <$> mapM resolveTypeSynonyms xs
 
-  case f of
-    ConT n ->
-      do mbInfo <- reifyMaybe n
-         case mbInfo of
-           Just (TyConI (TySynD _ synvars def))
-             -> resolveTypeSynonyms $ expandSynonymRHS synvars xs def
-           _ -> notTypeSynCase
-    _ -> notTypeSynCase
+      expandCon :: Name -- The Name to check whether it is a type synonym or not
+                -> Type -- The argument type to fall back on if the supplied
+                        -- Name isn't a type synonym
+                -> Q Type
+      expandCon n ty = do
+        mbInfo <- reifyMaybe n
+        case mbInfo of
+          Just (TyConI (TySynD _ synvars def))
+            -> resolveTypeSynonyms $ expandSynonymRHS synvars xs def
+          _ -> notTypeSynCase ty
+
+  in case f of
+       ForallT tvbs ctxt body ->
+         ForallT `fmap` mapM resolve_tvb_syns tvbs
+                   `ap` mapM resolvePredSynonyms ctxt
+                   `ap` resolveTypeSynonyms body
+       SigT ty ki -> do
+         ty' <- resolveTypeSynonyms ty
+         ki' <- resolveKindSynonyms ki
+         notTypeSynCase $ SigT ty' ki'
+       ConT n -> expandCon n (ConT n)
+#if MIN_VERSION_template_haskell(2,11,0)
+       InfixT t1 n t2 -> do
+         t1' <- resolveTypeSynonyms t1
+         t2' <- resolveTypeSynonyms t2
+         expandCon n (InfixT t1' n t2')
+       UInfixT t1 n t2 -> do
+         t1' <- resolveTypeSynonyms t1
+         t2' <- resolveTypeSynonyms t2
+         expandCon n (UInfixT t1' n t2')
+#endif
+       _ -> notTypeSynCase f
+
+-- | Expand all of the type synonyms in a 'Kind'.
+resolveKindSynonyms :: Kind -> Q Kind
+#if MIN_VERSION_template_haskell(2,8,0)
+resolveKindSynonyms = resolveTypeSynonyms
+#else
+resolveKindSynonyms = return -- One simply couldn't put type synonyms into
+                             -- kinds on old versions of GHC.
+#endif
+
+-- | Expand all of the type synonyms in a the kind of a 'TyVarBndr'.
+resolve_tvb_syns :: TyVarBndr -> Q TyVarBndr
+resolve_tvb_syns tvb@PlainTV{}  = return tvb
+resolve_tvb_syns (KindedTV n k) = KindedTV n <$> resolveKindSynonyms k
 
 expandSynonymRHS ::
   [TyVarBndr] {- ^ Substitute these variables... -} ->
@@ -1159,8 +1201,11 @@ typeToPred t =
 decomposeType :: Type -> NonEmpty Type
 decomposeType = go []
   where
-    go args (AppT f x) = go (x:args) f
-    go args t          = t :| args
+    go args (AppT f x)  = go (x:args) f
+#if MIN_VERSION_template_haskell(2,11,0)
+    go args (ParensT t) = go args t
+#endif
+    go args t           = t :| args
 
 -- 'NonEmpty' didn't move into base until recently. Reimplementing it locally
 -- saves dependencies for supporting older GHCs
