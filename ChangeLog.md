@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.9.0 -- 2018-12-20
 * Fix a bug in which `resolveTypeSynonyms` would not look into `ForallT`s,
   `SigT`s, `InfixT`s, or `ParensT`s.
 * Fix a bug in which `quantifyType` would not respect the dependency order of
