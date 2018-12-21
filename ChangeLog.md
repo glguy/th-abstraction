@@ -1,5 +1,10 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Optimization: `quantifyType` now collapses consecutive `forall`s. For
+  instance, calling `quantifyType` on `forall b. a -> b -> T a` now produces
+  `forall a b. a -> b -> T a` instead of `forall a. forall b. a -> b -> T a`.
+
 ## 0.2.9.0 -- 2018-12-20
 * Fix a bug in which `resolveTypeSynonyms` would not look into `ForallT`s,
   `SigT`s, `InfixT`s, or `ParensT`s.

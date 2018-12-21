@@ -86,6 +86,7 @@ main =
      polyKindedExTyvarTest
 #endif
      regressionTest44
+     t63Test
 
 adt1Test :: IO ()
 adt1Test =
@@ -813,4 +814,21 @@ regressionTest44 =
   $(do intToInt <- [t| Int -> Int |]
        unified  <- unifyTypes [intToInt, intToInt]
        unless (Map.null unified) (fail "regression test for ticket #44 failed")
+       [| return () |])
+
+t63Test :: IO ()
+t63Test =
+  $(do a <- newName "a"
+       b <- newName "b"
+       t <- newName "T"
+       let tauType = ArrowT `AppT` VarT a `AppT` (ArrowT `AppT` VarT b
+                       `AppT` (ConT t `AppT` VarT a))
+           sigmaType = ForallT [PlainTV b] [] tauType
+           expected = ForallT [PlainTV a, PlainTV b] [] tauType
+           actual   = quantifyType sigmaType
+       unless (expected == actual) $
+         fail $ "quantifyType does not collapse consecutive foralls: "
+             ++ unlines [ "Expected: " ++ pprint expected
+                        , "Actual:   " ++ pprint actual
+                        ]
        [| return () |])
