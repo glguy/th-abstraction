@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.2.10.0 -- 2018-12-20
 * Optimization: `quantifyType` now collapses consecutive `forall`s. For
   instance, calling `quantifyType` on `forall b. a -> b -> T a` now produces
   `forall a b. a -> b -> T a` instead of `forall a. forall b. a -> b -> T a`.
