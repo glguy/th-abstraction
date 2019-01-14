@@ -4,6 +4,11 @@
 {-# LANGUAGE ConstraintKinds #-}
 #endif
 
+#if __GLASGOW_HASKELL__ >= 807
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
+#endif
+
 #if MIN_VERSION_template_haskell(2,8,0)
 {-# Language PolyKinds #-}
 #endif
@@ -85,6 +90,9 @@ main =
      t37Test
      polyKindedExTyvarTest
 #endif
+#if __GLASGOW_HASKELL__ >= 807
+     resolveTypeSynonymsVKATest
+#endif
      regressionTest44
      t63Test
 
@@ -92,21 +100,24 @@ adt1Test :: IO ()
 adt1Test =
   $(do info <- reifyDatatype ''Adt1
 
-       let vars@[a,b]  = map (VarT . mkName) ["a","b"]
-           [aSig,bSig] = map (\v -> SigT v starK) vars
+       let names            = map mkName ["a","b"]
+           [aTvb,bTvb]      = map (\v -> KindedTV v starK) names
+           vars@[aVar,bVar] = map (VarT . mkName) ["a","b"]
+           [aSig,bSig]      = map (\v -> SigT v starK) vars
 
        validateDI info
          DatatypeInfo
            { datatypeName = ''Adt1
            , datatypeContext = []
-           , datatypeVars = [aSig, bSig]
+           , datatypeVars = [aTvb,bTvb]
+           , datatypeInstTypes = [aSig, bSig]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
                    { constructorName = 'Adtc1
                    , constructorContext = []
                    , constructorVars = []
-                   , constructorFields = [AppT (AppT (TupleT 2) a) b]
+                   , constructorFields = [AppT (AppT (TupleT 2) aVar) bVar]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
@@ -124,19 +135,21 @@ gadt1Test :: IO ()
 gadt1Test =
   $(do info <- reifyDatatype ''Gadt1
 
-       let a = VarT (mkName "a")
+       let a = mkName "a"
+           aVar = VarT a
 
        validateDI info
          DatatypeInfo
            { datatypeName = ''Gadt1
            , datatypeContext = []
-           , datatypeVars = [SigT a starK]
+           , datatypeVars = [KindedTV a starK]
+           , datatypeInstTypes = [SigT aVar starK]
            , datatypeVariant = Datatype
            , datatypeCons =
                [ ConstructorInfo
                    { constructorName = 'Gadtc1
                    , constructorVars = []
-                   , constructorContext = [equalPred a (ConT ''Int)]
+                   , constructorContext = [equalPred aVar (ConT ''Int)]
                    , constructorFields = [ConT ''Int]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
@@ -144,20 +157,20 @@ gadt1Test =
                    { constructorName = 'Gadtc2
                    , constructorVars = []
                    , constructorContext = []
-                   , constructorFields = [AppT (AppT (TupleT 2) a) a]
+                   , constructorFields = [AppT (AppT (TupleT 2) aVar) aVar]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant = NormalConstructor }
                , ConstructorInfo
                    { constructorName = '(:**:)
                    , constructorVars = []
-                   , constructorContext = [equalPred a (TupleT 0)]
+                   , constructorContext = [equalPred aVar (TupleT 0)]
                    , constructorFields = [ConT ''Bool, ConT ''Char]
                    , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant = InfixConstructor }
                , ConstructorInfo
                    { constructorName = '(:!!:)
                    , constructorVars = []
-                   , constructorContext = [equalPred a (ConT ''Double)]
+                   , constructorContext = [equalPred aVar (ConT ''Double)]
                    , constructorFields = [ConT ''Char, ConT ''Bool]
                    , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant = NormalConstructor }
@@ -169,15 +182,17 @@ gadtrec1Test :: IO ()
 gadtrec1Test =
   $(do info <- reifyDatatype ''Gadtrec1
 
-       let con = gadtRecVanillaCI
+       let a   = mkName "a"
+           con = gadtRecVanillaCI
 
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''Gadtrec1
-           , datatypeContext = []
-           , datatypeVars    = [SigT (VarT (mkName "a")) starK]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''Gadtrec1
+           , datatypeContext   = []
+           , datatypeVars      = [KindedTV a starK]
+           , datatypeInstTypes = [SigT (VarT a) starK]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ con, con { constructorName = 'Gadtrecc2 } ]
            }
    )
@@ -186,23 +201,30 @@ equalTest :: IO ()
 equalTest =
   $(do info <- reifyDatatype ''Equal
 
-       let vars@[a,b,c]     = map (VarT . mkName) ["a","b","c"]
-           [aSig,bSig,cSig] = map (\v -> SigT v starK) vars
+       let names                 = map mkName ["a","b","c"]
+           [aTvb,bTvb,cTvb]      = map (\v -> KindedTV v starK) names
+           vars@[aVar,bVar,cVar] = map VarT names
+           [aSig,bSig,cSig]      = map (\v -> SigT v starK) vars
 
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''Equal
-           , datatypeContext = []
-           , datatypeVars    = [aSig, bSig, cSig]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''Equal
+           , datatypeContext   = []
+           , datatypeVars      = [aTvb, bTvb, cTvb]
+           , datatypeInstTypes = [aSig, bSig, cSig]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'Equalc
                    , constructorVars       = []
                    , constructorContext    =
-                        [equalPred a c, equalPred b c, classPred ''Read [c], classPred ''Show [c] ]
+                        [ equalPred aVar cVar
+                        , equalPred bVar cVar
+                        , classPred ''Read [cVar]
+                        , classPred ''Show [cVar]
+                        ]
                    , constructorFields     =
-                        [ListT `AppT` c, ConT ''Maybe `AppT` c]
+                        [ListT `AppT` cVar, ConT ''Maybe `AppT` cVar]
                    , constructorStrictness =
                         [notStrictAnnot, notStrictAnnot]
                    , constructorVariant    = NormalConstructor }
@@ -218,11 +240,12 @@ showableTest =
 
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''Showable
-           , datatypeContext = []
-           , datatypeVars    = []
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''Showable
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'Showable
                    , constructorVars       = [KindedTV a starK]
@@ -239,11 +262,12 @@ recordTest =
   $(do info <- reifyDatatype ''R
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''R
-           , datatypeContext = []
-           , datatypeVars    = []
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''R
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'R1
                    , constructorVars       = []
@@ -258,10 +282,13 @@ recordTest =
 gadt2Test :: IO ()
 gadt2Test =
   $(do info <- reifyDatatype ''Gadt2
-       let vars@[a,b]  = map (VarT . mkName) ["a","b"]
-           [aSig,bSig] = map (\v -> SigT v starK) vars
-           x     = mkName "x"
-           con   = ConstructorInfo
+       let names            = map mkName ["a","b"]
+           [aTvb,bTvb]      = map (\v -> KindedTV v starK) names
+           vars@[aVar,bVar] = map VarT names
+           [aSig,bSig]      = map (\v -> SigT v starK) vars
+           x                = mkName "x"
+
+           con = ConstructorInfo
                      { constructorName       = undefined
                      , constructorVars       = []
                      , constructorContext    = []
@@ -270,20 +297,21 @@ gadt2Test =
                      , constructorVariant    = NormalConstructor }
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''Gadt2
-           , datatypeContext = []
-           , datatypeVars    = [aSig, bSig]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''Gadt2
+           , datatypeContext   = []
+           , datatypeVars      = [aTvb, bTvb]
+           , datatypeInstTypes = [aSig, bSig]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ con { constructorName = 'Gadt2c1
-                     , constructorContext = [equalPred b (AppT ListT a)] }
+                     , constructorContext = [equalPred bVar (AppT ListT aVar)] }
                , con { constructorName = 'Gadt2c2
-                     , constructorContext = [equalPred a (AppT ListT b)] }
+                     , constructorContext = [equalPred aVar (AppT ListT bVar)] }
                , con { constructorName = 'Gadt2c3
                      , constructorVars = [KindedTV x starK]
                      , constructorContext =
-                         [equalPred a (AppT ListT (VarT x))
-                         ,equalPred b (AppT ListT (VarT x))] } ]
+                         [equalPred aVar (AppT ListT (VarT x))
+                         ,equalPred bVar (AppT ListT (VarT x))] } ]
            }
   )
 
@@ -293,11 +321,12 @@ voidstosTest =
        let g = mkName "g"
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''VoidStoS
-           , datatypeContext = []
-           , datatypeVars    = [SigT (VarT g) (arrowKCompat starK starK)]
-           , datatypeVariant = Datatype
-           , datatypeCons    = []
+           { datatypeName      = ''VoidStoS
+           , datatypeContext   = []
+           , datatypeVars      = [KindedTV g (arrowKCompat starK starK)]
+           , datatypeInstTypes = [SigT (VarT g) (arrowKCompat starK starK)]
+           , datatypeVariant   = Datatype
+           , datatypeCons      = []
            }
   )
 
@@ -306,11 +335,12 @@ strictDemoTest =
   $(do info <- reifyDatatype ''StrictDemo
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''StrictDemo
-           , datatypeContext = []
-           , datatypeVars    = []
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = ''StrictDemo
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'StrictDemo
                    , constructorVars       = []
@@ -336,11 +366,12 @@ t43Test =
        infoPlain  <- normalizeDec decPlain
        validateDI infoPlain
          DatatypeInfo
-           { datatypeName    = mkName "T43Plain"
-           , datatypeContext = []
-           , datatypeVars    = []
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeName      = mkName "T43Plain"
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "MkT43Plain"
                    , constructorVars       = []
@@ -354,11 +385,12 @@ t43Test =
        infoFam  <- normalizeDec decFam
        validateDI infoFam
          DatatypeInfo
-           { datatypeName    = mkName "T43Fam"
-           , datatypeContext = []
-           , datatypeVars    = []
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = mkName "T43Fam"
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "MkT43Fam"
                    , constructorVars       = []
@@ -377,11 +409,12 @@ dataFamilyTest =
        let a = mkName "a"
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''DF
-           , datatypeContext = []
-           , datatypeVars    = [AppT (ConT ''Maybe) (VarT a)]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''DF
+           , datatypeContext   = []
+           , datatypeVars      = [KindedTV a starK]
+           , datatypeInstTypes = [AppT (ConT ''Maybe) (VarT a)]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'DFMaybe
                    , constructorVars       = []
@@ -395,19 +428,21 @@ dataFamilyTest =
 ghc78bugTest :: IO ()
 ghc78bugTest =
   $(do info <- reifyDatatype 'DF1
-       let c = VarT (mkName "c")
+       let c    = mkName "c"
+           cVar = VarT c
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''DF1
-           , datatypeContext = []
-           , datatypeVars    = [SigT c starK]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''DF1
+           , datatypeContext   = []
+           , datatypeVars      = [KindedTV c starK]
+           , datatypeInstTypes = [SigT cVar starK]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'DF1
                    , constructorVars       = []
                    , constructorContext    = []
-                   , constructorFields     = [c]
+                   , constructorFields     = [cVar]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor } ]
            }
@@ -417,19 +452,21 @@ quotedTest :: IO ()
 quotedTest =
   $(do [dec] <- [d| data instance Quoted a = MkQuoted a |]
        info  <- normalizeDec dec
-       let a = VarT (mkName "a")
+       let a    = mkName "a"
+           aVar = VarT a
        validateDI info
          DatatypeInfo
-           { datatypeName    = mkName "Quoted"
-           , datatypeContext = []
-           , datatypeVars    = [SigT a starK]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = mkName "Quoted"
+           , datatypeContext   = []
+           , datatypeVars      = [KindedTV a starK]
+           , datatypeInstTypes = [SigT aVar starK]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "MkQuoted"
                    , constructorVars       = []
                    , constructorContext    = []
-                   , constructorFields     = [a]
+                   , constructorFields     = [aVar]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor } ]
            }
@@ -439,13 +476,19 @@ polyTest :: IO ()
 polyTest =
   $(do info <- reifyDatatype 'MkPoly
        let [a,k] = map mkName ["a","k"]
+           kVar  = varKCompat k
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''Poly
-           , datatypeContext = []
-           , datatypeVars    = [SigT (VarT a) (varKCompat k)]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''Poly
+           , datatypeContext   = []
+           , datatypeVars      = [
+#if __GLASGOW_HASKELL__ >= 800
+                                 KindedTV k starK,
+#endif
+                                 KindedTV a kVar ]
+           , datatypeInstTypes = [SigT (VarT a) kVar]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkPoly
                    , constructorVars       = []
@@ -459,16 +502,18 @@ polyTest =
 gadtFamTest :: IO ()
 gadtFamTest =
   $(do info <- reifyDatatype 'MkGadtFam1
-       let names@[c,d,e,q]   = map mkName ["c","d","e","q"]
-           [cTy,dTy,eTy,qTy] = map VarT names
-           [cSig,dSig]       = map (\v -> SigT v starK) [cTy,dTy]
+       let names@[c,d,e,q]       = map mkName ["c","d","e","q"]
+           [cTvb,dTvb,eTvb,qTvb] = map (\v -> KindedTV v starK) names
+           [cTy,dTy,eTy,qTy]     = map VarT names
+           [cSig,dSig]           = map (\v -> SigT v starK) [cTy,dTy]
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''GadtFam
-           , datatypeContext = []
-           , datatypeVars    = [cSig,dSig]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''GadtFam
+           , datatypeContext   = []
+           , datatypeVars      = [cTvb,dTvb]
+           , datatypeInstTypes = [cSig,dSig]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkGadtFam1
                    , constructorVars       = []
@@ -521,11 +566,12 @@ famLocalDecTest1 =
        info <- normalizeDec dec
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''FamLocalDec1
-           , datatypeContext = []
-           , datatypeVars    = [ConT ''Int]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''FamLocalDec1
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = [ConT ''Int]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "FamLocalDec1Int"
                    , constructorVars       = []
@@ -540,20 +586,23 @@ famLocalDecTest2 :: IO ()
 famLocalDecTest2 =
   $(do [dec] <- [d| data instance FamLocalDec2 Int (a, b) a = FamLocalDec2Int { fm0 :: (b, a), fm1 :: Int } |]
        info <- normalizeDec dec
-       let tys@[a,b]   = map (VarT . mkName) ["a", "b"]
-           [aSig,bSig] = map (\v -> SigT v starK) tys
+       let names            = map mkName ["a", "b"]
+           [aTvb,bTvb]      = map (\v -> KindedTV v starK) names
+           vars@[aVar,bVar] = map (VarT . mkName) ["a", "b"]
+           [aSig,bSig]      = map (\v -> SigT v starK) vars
        validateDI info
          DatatypeInfo
-           { datatypeName    = ''FamLocalDec2
-           , datatypeContext = []
-           , datatypeVars    = [ConT ''Int, TupleT 2 `AppT` a `AppT` b, aSig]
-           , datatypeVariant = DataInstance
-           , datatypeCons    =
+           { datatypeName      = ''FamLocalDec2
+           , datatypeContext   = []
+           , datatypeVars      = [aTvb,bTvb]
+           , datatypeInstTypes = [ConT ''Int, TupleT 2 `AppT` aVar `AppT` bVar, aSig]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "FamLocalDec2Int"
                    , constructorVars       = []
                    , constructorContext    = []
-                   , constructorFields     = [TupleT 2 `AppT` b `AppT` a, ConT ''Int]
+                   , constructorFields     = [TupleT 2 `AppT` bVar `AppT` aVar, ConT ''Int]
                    , constructorStrictness = [notStrictAnnot, notStrictAnnot]
                    , constructorVariant    = RecordConstructor [mkName "fm0", mkName "fm1"] }]
            }
@@ -597,13 +646,15 @@ resolvePredSynonymsTest =
 reifyDatatypeWithConNameTest :: IO ()
 reifyDatatypeWithConNameTest =
   $(do info <- reifyDatatype 'Just
+       let a = mkName "a"
        validateDI info
          DatatypeInfo
-          { datatypeContext = []
-          , datatypeName    = ''Maybe
-          , datatypeVars    = [SigT (VarT (mkName "a")) starK]
-          , datatypeVariant = Datatype
-          , datatypeCons    =
+          { datatypeContext   = []
+          , datatypeName      = ''Maybe
+          , datatypeVars      = [KindedTV a starK]
+          , datatypeInstTypes = [SigT (VarT a) starK]
+          , datatypeVariant   = Datatype
+          , datatypeCons      =
               [ ConstructorInfo
                   { constructorName       = 'Nothing
                   , constructorVars       = []
@@ -626,20 +677,26 @@ reifyConstructorTest =
 importedEqualityTest :: IO ()
 importedEqualityTest =
   $(do info <- reifyDatatype ''(:~:)
-       let [a,b] = map (VarT . mkName) ["a","b"]
-           k     = mkName "k"
-           kKind = varKCompat k
+       let names@[a,b] = map mkName ["a","b"]
+           [aVar,bVar] = map VarT names
+           k           = mkName "k"
+           kKind       = varKCompat k
        validateDI info
          DatatypeInfo
-           { datatypeContext = []
-           , datatypeName    = ''(:~:)
-           , datatypeVars    = [SigT a kKind, SigT b kKind]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeContext   = []
+           , datatypeName      = ''(:~:)
+           , datatypeVars      = [
+#if __GLASGOW_HASKELL__ >= 800
+                                 KindedTV k starK,
+#endif
+                                 KindedTV a kKind, KindedTV b kKind]
+           , datatypeInstTypes = [SigT aVar kKind, SigT bVar kKind]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'Refl
                    , constructorVars       = []
-                   , constructorContext    = [equalPred a b]
+                   , constructorContext    = [equalPred aVar bVar]
                    , constructorFields     = []
                    , constructorStrictness = []
                    , constructorVariant    = NormalConstructor } ]
@@ -722,18 +779,24 @@ t61Test =
 t37Test :: IO ()
 t37Test =
   $(do infoA <- reifyDatatype ''T37a
-       let [k,a] = map (VarT . mkName) ["k","a"]
+       let names@[k,a] = map mkName ["k","a"]
+           [kVar,aVar] = map VarT names
+           kSig        = SigT kVar starK
+           aSig        = SigT aVar kVar
+           kTvb        = KindedTV k starK
+           aTvb        = KindedTV a kVar
        validateDI infoA
          DatatypeInfo
-           { datatypeContext = []
-           , datatypeName    = ''T37a
-           , datatypeVars    = [SigT k starK, SigT a k]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeContext   = []
+           , datatypeName      = ''T37a
+           , datatypeVars      = [kTvb, aTvb]
+           , datatypeInstTypes = [kSig, aSig]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkT37a
                    , constructorVars       = []
-                   , constructorContext    = [equalPred k (ConT ''Bool)]
+                   , constructorContext    = [equalPred kVar (ConT ''Bool)]
                    , constructorFields     = []
                    , constructorStrictness = []
                    , constructorVariant    = NormalConstructor } ]
@@ -742,15 +805,16 @@ t37Test =
        infoB <- reifyDatatype ''T37b
        validateDI infoB
          DatatypeInfo
-           { datatypeContext = []
-           , datatypeName    = ''T37b
-           , datatypeVars    = [SigT a k]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeContext   = []
+           , datatypeName      = ''T37b
+           , datatypeVars      = [kTvb, aTvb]
+           , datatypeInstTypes = [aSig]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkT37b
                    , constructorVars       = []
-                   , constructorContext    = [equalPred k (ConT ''Bool)]
+                   , constructorContext    = [equalPred kVar (ConT ''Bool)]
                    , constructorFields     = []
                    , constructorStrictness = []
                    , constructorVariant    = NormalConstructor } ]
@@ -759,15 +823,16 @@ t37Test =
        infoC <- reifyDatatype ''T37c
        validateDI infoC
          DatatypeInfo
-           { datatypeContext = []
-           , datatypeName    = ''T37c
-           , datatypeVars    = [SigT a k]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeContext   = []
+           , datatypeName      = ''T37c
+           , datatypeVars      = [kTvb, aTvb]
+           , datatypeInstTypes = [aSig]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkT37c
                    , constructorVars       = []
-                   , constructorContext    = [equalPred a (ConT ''Bool)]
+                   , constructorContext    = [equalPred aVar (ConT ''Bool)]
                    , constructorFields     = []
                    , constructorStrictness = []
                    , constructorVariant    = NormalConstructor } ]
@@ -778,16 +843,18 @@ polyKindedExTyvarTest :: IO ()
 polyKindedExTyvarTest =
   $(do info <- reifyDatatype ''T48
        let [a,x] = map mkName ["a","x"]
+           aVar  = VarT a
        validateDI info
          DatatypeInfo
-           { datatypeContext = []
-           , datatypeName    = ''T48
-           , datatypeVars    = [SigT (VarT a) starK]
-           , datatypeVariant = Datatype
-           , datatypeCons    =
+           { datatypeContext   = []
+           , datatypeName      = ''T48
+           , datatypeVars      = [KindedTV a starK]
+           , datatypeInstTypes = [SigT aVar starK]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = 'MkT48
-                   , constructorVars       = [KindedTV x (VarT a)]
+                   , constructorVars       = [KindedTV x aVar]
                    , constructorContext    = []
                    , constructorFields     = [ConT ''Prox `AppT` VarT x]
                    , constructorStrictness = [notStrictAnnot]
@@ -798,7 +865,7 @@ polyKindedExTyvarTest =
        -- unfortunately does not check if the uses of `a` in datatypeVars and
        -- constructorVars are the same. We perform this check explicitly here.
        case info of
-         DatatypeInfo { datatypeVars = [SigT (VarT a1) starK]
+         DatatypeInfo { datatypeVars = [KindedTV a1 starK]
                       , datatypeCons =
                           [ ConstructorInfo
                               { constructorVars = [KindedTV _ (VarT a2)] } ] } ->
@@ -807,6 +874,17 @@ polyKindedExTyvarTest =
                  ++ show [a1, a2]
        [| return () |]
    )
+#endif
+
+#if __GLASGOW_HASKELL__ >= 807
+resolveTypeSynonymsVKATest :: IO ()
+resolveTypeSynonymsVKATest =
+  $(do t  <- [t| T37b @Bool True |]
+       t' <- resolveTypeSynonyms t
+       unless (t == t') $
+         fail $ "Type synonym expansion breaks with visible kind application: "
+            ++ show [t, t']
+       [| return () |])
 #endif
 
 regressionTest44 :: IO ()

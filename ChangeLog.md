@@ -1,5 +1,15 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Breaking change: the `datatypeVars` field of `DatatypeInfo` is now of type
+  `[TyVarBndr]` instead of `[Type]`, as it now refers to all of the bound type
+  variables in the data type. The old `datatypeVars` field has been renamed to
+  `datatypeInstTypes` to better reflect its purpose.
+
+  In addition, the type of `normalizeCon` now has an additional `[TyVarBndr]`
+  argument, since `DatatypeInfo` now requires it.
+* Support `template-haskell-2.15`.
+
 ## 0.2.10.0 -- 2018-12-20
 * Optimization: `quantifyType` now collapses consecutive `forall`s. For
   instance, calling `quantifyType` on `forall b. a -> b -> T a` now produces
