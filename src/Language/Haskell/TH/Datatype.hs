@@ -1314,11 +1314,11 @@ data TypeArg
 -- | Apply a 'Type' to a 'TypeArg'.
 appTypeArg :: Type -> TypeArg -> Type
 appTypeArg f (TANormal x) = f `AppT` x
-appTypeArg f (TyArg k) =
+appTypeArg f (TyArg _k) =
 #if MIN_VERSION_template_haskell(2,15,0)
-  f `AppKindT` k
+  f `AppKindT` _k
 #else
-  error "Visible kind applications only supported with template-haskell-2.15+"
+  f -- VKA isn't supported, so conservatively drop the argument
 #endif
 
 -- | Filter out all of the normal type arguments from a list of 'TypeArg's.

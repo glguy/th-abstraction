@@ -4,6 +4,11 @@
 {-# LANGUAGE ConstraintKinds #-}
 #endif
 
+#if __GLASGOW_HASKELL__ >= 807
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
+#endif
+
 #if MIN_VERSION_template_haskell(2,8,0)
 {-# Language PolyKinds #-}
 #endif
@@ -84,6 +89,9 @@ main =
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
      polyKindedExTyvarTest
+#endif
+#if __GLASGOW_HASKELL__ >= 807
+     resolveTypeSynonymsVKATest
 #endif
      regressionTest44
      t63Test
@@ -866,6 +874,17 @@ polyKindedExTyvarTest =
                  ++ show [a1, a2]
        [| return () |]
    )
+#endif
+
+#if __GLASGOW_HASKELL__ >= 807
+resolveTypeSynonymsVKATest :: IO ()
+resolveTypeSynonymsVKATest =
+  $(do t  <- [t| T37b @Bool True |]
+       t' <- resolveTypeSynonyms t
+       unless (t == t') $
+         fail $ "Type synonym expansion breaks with visible kind application: "
+            ++ show [t, t']
+       [| return () |])
 #endif
 
 regressionTest44 :: IO ()
