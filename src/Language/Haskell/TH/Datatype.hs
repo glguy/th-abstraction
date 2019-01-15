@@ -446,7 +446,7 @@ reifyParent con = reifyParentWith "reifyParent" p
 
 reifyRecordType :: Name -> Type -> Q DatatypeInfo
 reifyRecordType recName recTy =
-  let (_, argTys :|- _) = uncurryType recTy
+  let (_, _, argTys :|- _) = uncurryType recTy
   in case argTys of
        dataTy:_ -> decomposeDataType dataTy
        _        -> notRecSelFailure
@@ -841,36 +841,36 @@ normalizeConFor reifiedDec typename params instTys variant =
                 case c of
                   NormalC n xs ->
                     let stricts = map (normalizeStrictness . fst) xs in
-                    dataFamCase' n tyvars stricts NormalConstructor
+                    dataFamCase' n stricts NormalConstructor
                   InfixC l n r ->
                     let stricts = map (normalizeStrictness . fst) [l,r] in
-                    dataFamCase' n tyvars stricts InfixConstructor
+                    dataFamCase' n stricts InfixConstructor
                   RecC n xs ->
                     let stricts = takeFieldStrictness xs in
-                    dataFamCase' n tyvars stricts
+                    dataFamCase' n stricts
                                  (RecordConstructor (takeFieldNames xs))
                   ForallC tyvars' context' c' ->
                     go (tyvars'++tyvars) c'
 
-          dataFamCase' :: Name -> [TyVarBndr] -> [FieldStrictness]
+          dataFamCase' :: Name -> [FieldStrictness]
                        -> ConstructorVariant
                        -> Q [ConstructorInfo]
-          dataFamCase' n tyvars stricts variant = do
+          dataFamCase' n stricts variant = do
             mbInfo <- reifyMaybe n
             case mbInfo of
               Just (DataConI _ ty _ _) -> do
-                let (context, argTys :|- returnTy) = uncurryType ty
+                let (tyvars, context, argTys :|- returnTy) = uncurryType ty
                 returnTy' <- resolveTypeSynonyms returnTy
-                -- Notice that we've ignored the Cxt and argument Types from the
-                -- Con argument above, as they might be scoped over eta-reduced
-                -- variables. Instead of trying to figure out what the
-                -- eta-reduced variables should be substituted with post facto,
-                -- we opt for the simpler approach of using the context and
-                -- argument types from the reified constructor Info, which will
-                -- at least be correctly scoped. This will make the task of
-                -- substituting those types with the variables we put in
-                -- place of the eta-reduced variables (in normalizeDec)
-                -- much easier.
+                -- Notice that we've ignored the TyVarBndrs, Cxt and argument
+                -- Types from the Con argument above, as they might be scoped
+                -- over eta-reduced variables. Instead of trying to figure out
+                -- what the eta-reduced variables should be substituted with
+                -- post facto, we opt for the simpler approach of using the
+                -- context and argument types from the reified constructor
+                -- Info, which will at least be correctly scoped. This will
+                -- make the task of substituting those types with the variables
+                -- we put in place of the eta-reduced variables
+                -- (in normalizeDec) much easier.
                 normalizeGadtC typename params instTys tyvars context [n]
                                returnTy' argTys stricts (const $ return variant)
               _ -> fail $ unlines
@@ -966,7 +966,20 @@ normalizeGadtC ::
   Q [ConstructorInfo]
 normalizeGadtC typename params instTys tyvars context names innerType
                fields stricts getVariant =
-  do -- Due to GHC Trac #13885, it's possible that the type variables bound by
+  do -- It's possible that the constructor has implicitly quantified type
+     -- variables, such as in the following example (from #58):
+     --
+     --   [d| data Foo where
+     --         MkFoo :: a -> Foo |]
+     --
+     -- normalizeGadtC assumes that all type variables have binders, however,
+     -- so we use freeVariablesWellScoped to obtain the implicit type
+     -- variables' binders before proceeding.
+     let implicitTyvars = freeVariablesWellScoped
+                          [curryType tyvars context fields innerType]
+         allTyvars = implicitTyvars ++ tyvars
+
+     -- Due to GHC Trac #13885, it's possible that the type variables bound by
      -- a GADT constructor will shadow those that are bound by the data type.
      -- This function assumes this isn't the case in certain parts (e.g., when
      -- mergeArguments is invoked), so we do an alpha-renaming of the
@@ -981,7 +994,7 @@ normalizeGadtC typename params instTys tyvars context names innerType
            map (\tvb -> case tvb of
                           PlainTV n    -> PlainTV  (conSubst Map.! n)
                           KindedTV n k -> KindedTV (conSubst Map.! n)
-                                                   (applySubstitution conSubst' k)) tyvars
+                                                   (applySubstitution conSubst' k)) allTyvars
          renamedContext   = applySubstitution conSubst' context
          renamedInnerType = applySubstitution conSubst' innerType
          renamedFields    = applySubstitution conSubst' fields
@@ -1338,17 +1351,23 @@ data NonEmptySnoc a = [a] :|- a
 -- Decompose a function type into its context, argument types,
 -- and return types. For instance, this
 --
---   (Show a, b ~ Int) => (a -> b) -> Char -> Int
+--   forall a b. (Show a, b ~ Int) => (a -> b) -> Char -> Int
 --
 -- becomes
 --
---   ([Show a, b ~ Int], [a -> b, Char] :|- Int)
-uncurryType :: Type -> (Cxt, NonEmptySnoc Type)
-uncurryType = go [] []
+--   ([a, b], [Show a, b ~ Int], [a -> b, Char] :|- Int)
+uncurryType :: Type -> ([TyVarBndr], Cxt, NonEmptySnoc Type)
+uncurryType = go [] [] []
   where
-    go ctxt args (AppT (AppT ArrowT t1) t2) = go ctxt (t1:args) t2
-    go ctxt args (ForallT _ ctxt' t)        = go (ctxt++ctxt') args t
-    go ctxt args t                          = (ctxt, reverse args :|- t)
+    go tvbs ctxt args (AppT (AppT ArrowT t1) t2) = go tvbs ctxt (t1:args) t2
+    go tvbs ctxt args (ForallT tvbs' ctxt' t)    = go (tvbs++tvbs') (ctxt++ctxt') args t
+    go tvbs ctxt args t                          = (tvbs, ctxt, reverse args :|- t)
+
+-- Reconstruct a function type from its type variable binders, context,
+-- argument types and return type.
+curryType :: [TyVarBndr] -> Cxt -> [Type] -> Type -> Type
+curryType tvbs ctxt args res =
+  ForallT tvbs ctxt $ foldr (\arg t -> ArrowT `AppT` arg `AppT` t) res args
 
 -- | Resolve any infix type application in a type using the fixities that
 -- are currently available. Starting in `template-haskell-2.11` types could

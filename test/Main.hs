@@ -60,6 +60,7 @@ main =
      recordVanillaTest
 #if MIN_VERSION_template_haskell(2,6,0)
      t43Test
+     t58Test
 #endif
 #if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
@@ -397,6 +398,30 @@ t43Test =
                    , constructorContext    = []
                    , constructorFields     = []
                    , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
+
+t58Test :: IO ()
+t58Test =
+  $(do [dec] <- [d| data Foo where
+                      MkFoo :: a -> Foo |]
+       info <- normalizeDec dec
+       let a = mkName "a"
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "Foo"
+           , datatypeContext   = []
+           , datatypeVars      = []
+           , datatypeInstTypes = []
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkFoo"
+                   , constructorVars       = [KindedTV a starK]
+                   , constructorContext    = []
+                   , constructorFields     = [VarT a]
+                   , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor } ]
            }
    )
