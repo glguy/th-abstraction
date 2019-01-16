@@ -986,7 +986,7 @@ normalizeGadtC typename params instTys tyvars context names innerType
      -- constructor-bound variables before proceeding. See #36 for an example
      -- of what can go wrong if this isn't done.
      let conBoundNames =
-           concatMap (\tvb -> tvName tvb:freeVariables (tvKind tvb)) tyvars
+           concatMap (\tvb -> tvName tvb:freeVariables (tvKind tvb)) allTyvars
      conSubst <- T.sequence $ Map.fromList [ (n, newName (nameBase n))
                                            | n <- conBoundNames ]
      let conSubst'     = fmap VarT conSubst
