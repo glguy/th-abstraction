@@ -9,6 +9,8 @@
   In addition, the type of `normalizeCon` now has an additional `[TyVarBndr]`
   argument, since `DatatypeInfo` now requires it.
 * Support `template-haskell-2.15`.
+* Fix a bug in which `normalizeDec` would not detect existential type variables
+  in a GADT constructor if they were implicitly quantified.
 
 ## 0.2.10.0 -- 2018-12-20
 * Optimization: `quantifyType` now collapses consecutive `forall`s. For
