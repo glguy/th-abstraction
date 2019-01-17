@@ -626,64 +626,90 @@ normalizeDecFor :: IsReifiedDec -> Dec -> Q DatatypeInfo
 normalizeDecFor isReified dec =
   case dec of
 #if MIN_VERSION_template_haskell(2,12,0)
-    NewtypeD context name tyvars _kind con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
-    DataD context name tyvars _kind cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
+    NewtypeD context name tyvars mbKind con _derives ->
+      normalizeDataD context name tyvars mbKind [con] Newtype
+    DataD context name tyvars mbKind cons _derives ->
+      normalizeDataD context name tyvars mbKind cons Datatype
 # if MIN_VERSION_template_haskell(2,15,0)
-    NewtypeInstD context mbTyvars nameInstTys _kind con _derives ->
-      case decomposeType nameInstTys of
-        ConT name :| instTys ->
-          repair13618' . giveDIVarsStarKinds =<<
-          normalizeDec' isReified context name (fromMaybe (freeVariablesWellScoped instTys) mbTyvars) instTys [con] NewtypeInstance
-        _ -> fail $ "Unexpected newtype instance head: " ++ pprint nameInstTys
-    DataInstD context mbTyvars nameInstTys _kind cons _derives ->
-      case decomposeType nameInstTys of
-        ConT name :| instTys ->
-          repair13618' . giveDIVarsStarKinds =<<
-          normalizeDec' isReified context name (fromMaybe (freeVariablesWellScoped instTys) mbTyvars) instTys cons DataInstance
-        _ -> fail $ "Unexpected data instance head: " ++ pprint nameInstTys
+    NewtypeInstD context mbTyvars nameInstTys mbKind con _derives ->
+      normalizeDataInstDPostTH2'15 "newtype" context mbTyvars nameInstTys
+                                   mbKind [con] NewtypeInstance
+    DataInstD context mbTyvars nameInstTys mbKind cons _derives ->
+      normalizeDataInstDPostTH2'15 "data" context mbTyvars nameInstTys
+                                   mbKind cons DataInstance
 # else
-    NewtypeInstD context name instTys _kind con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
-    DataInstD context name instTys _kind cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+    NewtypeInstD context name instTys mbKind con _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind [con] NewtypeInstance
+    DataInstD context name instTys mbKind cons _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
 # endif
 #elif MIN_VERSION_template_haskell(2,11,0)
-    NewtypeD context name tyvars _kind con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
-    DataD context name tyvars _kind cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
-    NewtypeInstD context name instTys _kind con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
-    DataInstD context name instTys _kind cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+    NewtypeD context name tyvars mbKind con _derives ->
+      normalizeDataD context name tyvars mbKind [con] Newtype
+    DataD context name tyvars mbKind cons _derives ->
+      normalizeDataD context name tyvars mbKind cons Datatype
+    NewtypeInstD context name instTys mbKind con _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind [con] NewtypeInstance
+    DataInstD context name instTys mbKind cons _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
 #else
     NewtypeD context name tyvars con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
+      normalizeDataD context name tyvars Nothing [con] Newtype
     DataD context name tyvars cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
+      normalizeDataD context name tyvars Nothing cons Datatype
     NewtypeInstD context name instTys con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
+      normalizeDataInstDPreTH2'15 context name instTys Nothing [con] NewtypeInstance
     DataInstD context name instTys cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+      normalizeDataInstDPreTH2'15 context name instTys Nothing cons DataInstance
 #endif
     _ -> fail "normalizeDecFor: DataD or NewtypeD required"
   where
-    repair13618' | isReified = repair13618
-                 | otherwise = return
+    -- We only need to repair reified declarations for data family instances.
+    repair13618' :: DatatypeInfo -> Q DatatypeInfo
+    repair13618' di@DatatypeInfo{datatypeVariant = variant}
+      | isReified && isFamInstVariant variant
+      = repair13618 di
+      | otherwise
+      = return di
+
+    normalizeDataD :: Cxt -> Name -> [TyVarBndr] -> Maybe Kind
+                   -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataD context name tyvars =
+      let params = bndrParams tyvars in
+      normalize' context name (freeVariablesWellScoped params) params
+
+    normalizeDataInstDPostTH2'15
+      :: String -> Cxt -> Maybe [TyVarBndr] -> Type -> Maybe Kind
+      -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataInstDPostTH2'15 what context mbTyvars nameInstTys
+                                 mbKind cons variant =
+      case decomposeType nameInstTys of
+        ConT name :| instTys ->
+          normalize' context name (fromMaybe (freeVariablesWellScoped instTys) mbTyvars) instTys
+                     mbKind cons variant
+        _ -> fail $ "Unexpected " ++ what ++ " instance head: " ++ pprint nameInstTys
+
+    normalizeDataInstDPreTH2'15
+      :: Cxt -> Name -> [Type] -> Maybe Kind
+      -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataInstDPreTH2'15 context name instTys =
+      normalize' context name (freeVariablesWellScoped instTys) instTys
+
+    -- The main worker of this function.
+    normalize' :: Cxt -> Name -> [TyVarBndr] -> [Type] -> Maybe Kind
+               -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalize' context name tvbs instTys _mbKind cons variant = do
+      dec <- normalizeDec' isReified context name tvbs instTys cons variant
+      repair13618' $ giveDIVarsStarKinds dec
+
+-- | Is a declaration for a @data instance@ or @newtype instance@?
+isFamInstVariant :: DatatypeVariant -> Bool
+isFamInstVariant dv =
+  case dv of
+    Datatype        -> False
+    Newtype         -> False
+    DataInstance    -> True
+    NewtypeInstance -> True
 
 bndrParams :: [TyVarBndr] -> [Type]
 bndrParams = map $ \bndr ->
