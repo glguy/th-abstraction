@@ -86,6 +86,7 @@ main =
      kindSubstTest
      t59Test
      t61Test
+     t66Test
 #endif
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
@@ -646,7 +647,6 @@ t46Test =
            unless (null ctxt) (fail "regression test for ticket #46 failed")
          _ -> fail "T46 should have exactly one constructor"
        [| return () |])
-
 #endif
 
 fixityLookupTest :: IO ()
@@ -798,6 +798,33 @@ t61Test =
             (ConT ''Int)
 #endif
        [| return () |])
+
+t66Test :: IO ()
+t66Test =
+  $(do [dec] <- [d| data Foo a b :: (* -> *) -> * -> * where
+                      MkFoo :: a -> b -> f x -> Foo a b f x |]
+       info <- normalizeDec dec
+       let [a,b,f,x] = map mkName ["a","b","f","x"]
+           fKind     = arrowKCompat starK starK
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "Foo"
+           , datatypeContext   = []
+           , datatypeVars      = [ KindedTV a starK ,KindedTV b starK
+                                 , KindedTV f fKind, KindedTV x starK ]
+           , datatypeInstTypes = [ SigT (VarT a) starK, SigT (VarT b) starK
+                                 , SigT (VarT f) fKind, SigT (VarT x) starK ]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkFoo"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [VarT a, VarT b, VarT f `AppT` VarT x]
+                   , constructorStrictness = [notStrictAnnot, notStrictAnnot, notStrictAnnot]
+                   , constructorVariant    = NormalConstructor } ]
+           }
+   )
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800

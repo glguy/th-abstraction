@@ -11,6 +11,9 @@
 * Support `template-haskell-2.15`.
 * Fix a bug in which `normalizeDec` would not detect existential type variables
   in a GADT constructor if they were implicitly quantified.
+* Fix a bug in which `normalizeDec` would report an incorrect number of
+  `datatypeVars` for GADT declarations with explicit return kinds (such as
+  `data Foo :: * -> * where`).
 
 ## 0.2.10.0 -- 2018-12-20
 * Optimization: `quantifyType` now collapses consecutive `forall`s. For

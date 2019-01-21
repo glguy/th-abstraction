@@ -626,64 +626,127 @@ normalizeDecFor :: IsReifiedDec -> Dec -> Q DatatypeInfo
 normalizeDecFor isReified dec =
   case dec of
 #if MIN_VERSION_template_haskell(2,12,0)
-    NewtypeD context name tyvars _kind con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
-    DataD context name tyvars _kind cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
+    NewtypeD context name tyvars mbKind con _derives ->
+      normalizeDataD context name tyvars mbKind [con] Newtype
+    DataD context name tyvars mbKind cons _derives ->
+      normalizeDataD context name tyvars mbKind cons Datatype
 # if MIN_VERSION_template_haskell(2,15,0)
-    NewtypeInstD context mbTyvars nameInstTys _kind con _derives ->
-      case decomposeType nameInstTys of
-        ConT name :| instTys ->
-          repair13618' . giveDIVarsStarKinds =<<
-          normalizeDec' isReified context name (fromMaybe (freeVariablesWellScoped instTys) mbTyvars) instTys [con] NewtypeInstance
-        _ -> fail $ "Unexpected newtype instance head: " ++ pprint nameInstTys
-    DataInstD context mbTyvars nameInstTys _kind cons _derives ->
-      case decomposeType nameInstTys of
-        ConT name :| instTys ->
-          repair13618' . giveDIVarsStarKinds =<<
-          normalizeDec' isReified context name (fromMaybe (freeVariablesWellScoped instTys) mbTyvars) instTys cons DataInstance
-        _ -> fail $ "Unexpected data instance head: " ++ pprint nameInstTys
+    NewtypeInstD context mbTyvars nameInstTys mbKind con _derives ->
+      normalizeDataInstDPostTH2'15 "newtype" context mbTyvars nameInstTys
+                                   mbKind [con] NewtypeInstance
+    DataInstD context mbTyvars nameInstTys mbKind cons _derives ->
+      normalizeDataInstDPostTH2'15 "data" context mbTyvars nameInstTys
+                                   mbKind cons DataInstance
 # else
-    NewtypeInstD context name instTys _kind con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
-    DataInstD context name instTys _kind cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+    NewtypeInstD context name instTys mbKind con _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind [con] NewtypeInstance
+    DataInstD context name instTys mbKind cons _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
 # endif
 #elif MIN_VERSION_template_haskell(2,11,0)
-    NewtypeD context name tyvars _kind con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
-    DataD context name tyvars _kind cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
-    NewtypeInstD context name instTys _kind con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
-    DataInstD context name instTys _kind cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+    NewtypeD context name tyvars mbKind con _derives ->
+      normalizeDataD context name tyvars mbKind [con] Newtype
+    DataD context name tyvars mbKind cons _derives ->
+      normalizeDataD context name tyvars mbKind cons Datatype
+    NewtypeInstD context name instTys mbKind con _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind [con] NewtypeInstance
+    DataInstD context name instTys mbKind cons _derives ->
+      normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
 #else
     NewtypeD context name tyvars con _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params [con] Newtype
+      normalizeDataD context name tyvars Nothing [con] Newtype
     DataD context name tyvars cons _derives ->
-      let params = bndrParams tyvars in
-      giveDIVarsStarKinds <$> normalizeDec' isReified context name (freeVariablesWellScoped params) params cons Datatype
+      normalizeDataD context name tyvars Nothing cons Datatype
     NewtypeInstD context name instTys con _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys [con] NewtypeInstance
+      normalizeDataInstDPreTH2'15 context name instTys Nothing [con] NewtypeInstance
     DataInstD context name instTys cons _derives ->
-      repair13618' . giveDIVarsStarKinds =<<
-      normalizeDec' isReified context name (freeVariablesWellScoped instTys) instTys cons DataInstance
+      normalizeDataInstDPreTH2'15 context name instTys Nothing cons DataInstance
 #endif
     _ -> fail "normalizeDecFor: DataD or NewtypeD required"
   where
-    repair13618' | isReified = repair13618
-                 | otherwise = return
+    -- We only need to repair reified declarations for data family instances.
+    repair13618' :: DatatypeInfo -> Q DatatypeInfo
+    repair13618' di@DatatypeInfo{datatypeVariant = variant}
+      | isReified && isFamInstVariant variant
+      = repair13618 di
+      | otherwise
+      = return di
+
+    -- Given a data type's instance types and kind, compute its free variables.
+    datatypeFreeVars :: [Type] -> Maybe Kind -> [TyVarBndr]
+    datatypeFreeVars instTys mbKind =
+      freeVariablesWellScoped $ instTys ++
+#if MIN_VERSION_template_haskell(2,8,0)
+                                           maybeToList mbKind
+#else
+                                           [] -- No kind variables
+#endif
+
+    normalizeDataD :: Cxt -> Name -> [TyVarBndr] -> Maybe Kind
+                   -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataD context name tyvars mbKind cons variant =
+      let params = bndrParams tyvars in
+      normalize' context name (datatypeFreeVars params mbKind)
+                 params mbKind cons variant
+
+    normalizeDataInstDPostTH2'15
+      :: String -> Cxt -> Maybe [TyVarBndr] -> Type -> Maybe Kind
+      -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataInstDPostTH2'15 what context mbTyvars nameInstTys
+                                 mbKind cons variant =
+      case decomposeType nameInstTys of
+        ConT name :| instTys ->
+          normalize' context name
+                     (fromMaybe (datatypeFreeVars instTys mbKind) mbTyvars)
+                     instTys mbKind cons variant
+        _ -> fail $ "Unexpected " ++ what ++ " instance head: " ++ pprint nameInstTys
+
+    normalizeDataInstDPreTH2'15
+      :: Cxt -> Name -> [Type] -> Maybe Kind
+      -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalizeDataInstDPreTH2'15 context name instTys mbKind cons variant =
+      normalize' context name (datatypeFreeVars instTys mbKind)
+                 instTys mbKind cons variant
+
+    -- The main worker of this function.
+    normalize' :: Cxt -> Name -> [TyVarBndr] -> [Type] -> Maybe Kind
+               -> [Con] -> DatatypeVariant -> Q DatatypeInfo
+    normalize' context name tvbs instTys mbKind cons variant = do
+      extra_tvbs <- mkExtraKindBinders $ fromMaybe starK mbKind
+      let tvbs'    = tvbs ++ extra_tvbs
+          instTys' = instTys ++ bndrParams extra_tvbs
+      dec <- normalizeDec' isReified context name tvbs' instTys' cons variant
+      repair13618' $ giveDIVarsStarKinds dec
+
+-- | Create new kind variable binder names corresponding to the return kind of
+-- a data type. This is useful when you have a data type like:
+--
+-- @
+-- data Foo :: forall k. k -> Type -> Type where ...
+-- @
+--
+-- But you want to be able to refer to the type @Foo a b@.
+-- 'mkExtraKindBinders' will take the kind @forall k. k -> Type -> Type@,
+-- discover that is has two visible argument kinds, and return as a result
+-- two new kind variable binders @[a :: k, b :: Type]@, where @a@ and @b@
+-- are fresh type variable names.
+--
+-- This expands kind synonyms if necessary.
+mkExtraKindBinders :: Kind -> Q [TyVarBndr]
+mkExtraKindBinders kind = do
+  kind' <- resolveKindSynonyms kind
+  let (_, _, args :|- _) = uncurryKind kind'
+  names <- replicateM (length args) (newName "x")
+  return $ zipWith KindedTV names args
+
+-- | Is a declaration for a @data instance@ or @newtype instance@?
+isFamInstVariant :: DatatypeVariant -> Bool
+isFamInstVariant dv =
+  case dv of
+    Datatype        -> False
+    Newtype         -> False
+    DataInstance    -> True
+    NewtypeInstance -> True
 
 bndrParams :: [TyVarBndr] -> [Type]
 bndrParams = map $ \bndr ->
@@ -1349,7 +1412,7 @@ data NonEmpty a = a :| [a]
 data NonEmptySnoc a = [a] :|- a
 
 -- Decompose a function type into its context, argument types,
--- and return types. For instance, this
+-- and return type. For instance, this
 --
 --   forall a b. (Show a, b ~ Int) => (a -> b) -> Char -> Int
 --
@@ -1362,6 +1425,24 @@ uncurryType = go [] [] []
     go tvbs ctxt args (AppT (AppT ArrowT t1) t2) = go tvbs ctxt (t1:args) t2
     go tvbs ctxt args (ForallT tvbs' ctxt' t)    = go (tvbs++tvbs') (ctxt++ctxt') args t
     go tvbs ctxt args t                          = (tvbs, ctxt, reverse args :|- t)
+
+-- | Decompose a function kind into its context, argument kinds,
+-- and return kind. For instance, this
+--
+--  forall a b. Maybe a -> Maybe b -> Type
+--
+-- becomes
+--
+--   ([a, b], [], [Maybe a, Maybe b] :|- Type)
+uncurryKind :: Kind -> ([TyVarBndr], Cxt, NonEmptySnoc Kind)
+#if MIN_VERSION_template_haskell(2,8,0)
+uncurryKind = uncurryType
+#else
+uncurryKind = go []
+  where
+    go args (ArrowK k1 k2) = go (k1:args) k2
+    go args StarK          = ([], [], reverse args :|- StarK)
+#endif
 
 -- Reconstruct a function type from its type variable binders, context,
 -- argument types and return type.
