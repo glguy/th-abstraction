@@ -97,6 +97,7 @@ main =
 #endif
      regressionTest44
      t63Test
+     t70Test
 
 adt1Test :: IO ()
 adt1Test =
@@ -961,4 +962,28 @@ t63Test =
              ++ unlines [ "Expected: " ++ pprint expected
                         , "Actual:   " ++ pprint actual
                         ]
+       [| return () |])
+
+t70Test :: IO ()
+t70Test =
+  $(do a <- newName "a"
+       b <- newName "b"
+       let [aVar, bVar] = map VarT    [a, b]
+           [aTvb, bTvb] = map PlainTV [a, b]
+       let fvsABExpected = [aTvb, bTvb]
+           fvsABActual   = freeVariablesWellScoped [aVar, bVar]
+
+           fvsBAExpected = [bTvb, aTvb]
+           fvsBAActual   = freeVariablesWellScoped [bVar, aVar]
+
+           check expected actual =
+             unless (expected == actual) $
+               fail $ "freeVariablesWellScoped does not preserve left-to-right order: "
+                   ++ unlines [ "Expected: " ++ pprint expected
+                              , "Actual:   " ++ pprint actual
+                              ]
+
+       check fvsABExpected fvsABActual
+       check fvsBAExpected fvsBAActual
+
        [| return () |])
