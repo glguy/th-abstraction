@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix a bug in which `freeVariablesWellScoped` would sometimes not preserve
+  the left-to-right ordering of `Name`s generated with `newName`.
+
 ## 0.2.10.0 -- 2018-12-20
 * Optimization: `quantifyType` now collapses consecutive `forall`s. For
   instance, calling `quantifyType` on `forall b. a -> b -> T a` now produces
