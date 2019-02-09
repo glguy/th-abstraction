@@ -120,11 +120,12 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.Graph
 import           Data.List (nub, find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
+import qualified Data.Set as Set
+import           Data.Set (Set)
 import qualified Data.Traversable as T
 import           Control.Monad
 import           Language.Haskell.TH
@@ -1600,6 +1601,16 @@ quantifyType t
 -- 'TyVarBndr's instead of 'Name's, since it must make it explicit that @k@
 -- is the kind of @a@.)
 --
+-- 'freeVariablesWellScoped' guarantees the free variables returned will be
+-- ordered such that:
+--
+-- 1. Whenever an explicit kind signature of the form @(A :: K)@ is
+--    encountered, the free variables of @K@ will always appear to the left of
+--    the free variables of @A@ in the returned result.
+--
+-- 2. The constraint in (1) notwithstanding, free variables will appear in
+--    left-to-right order of their original appearance.
+--
 -- On older GHCs, this takes measures to avoid returning explicitly bound
 -- kind variables, which was not possible before @TypeInType@.
 freeVariablesWellScoped :: [Type] -> [TyVarBndr]
@@ -1639,25 +1650,58 @@ freeVariablesWellScoped tys =
           go_pred (EqualP t1 t2) = go_ty t1 `mappend` go_ty t2
 #endif
 
-      (g, gLookup, _)
-        = graphFromEdges [ (fv, fv, kindVars)
-                         | fv <- fvs
-                         , let kindVars =
-                                 case Map.lookup fv varKindSigs of
-                                   Nothing -> []
-                                   Just ks -> freeVariables ks
-                         ]
-      tg = reverse $ topSort g
+      -- | Do a topological sort on a list of tyvars,
+      --   so that binders occur before occurrences
+      -- E.g. given  [ a::k, k::*, b::k ]
+      -- it'll return a well-scoped list [ k::*, a::k, b::k ]
+      --
+      -- This is a deterministic sorting operation
+      -- (that is, doesn't depend on Uniques).
+      --
+      -- It is also meant to be stable: that is, variables should not
+      -- be reordered unnecessarily.
+      scopedSort :: [Name] -> [Name]
+      scopedSort = go [] []
 
-      lookupVertex x =
-        case gLookup x of
-          (n, _, _) -> n
+      go :: [Name]     -- already sorted, in reverse order
+         -> [Set Name] -- each set contains all the variables which must be placed
+                       -- before the tv corresponding to the set; they are accumulations
+                       -- of the fvs in the sorted tvs' kinds
 
-      ascribeWithKind n
-        | Just k <- Map.lookup n varKindSigs
-        = KindedTV n k
+                       -- This list is in 1-to-1 correspondence with the sorted tyvars
+                       -- INVARIANT:
+                       --   all (\tl -> all (`isSubsetOf` head tl) (tail tl)) (tails fv_list)
+                       -- That is, each set in the list is a superset of all later sets.
+         -> [Name]     -- yet to be sorted
+         -> [Name]
+      go acc _fv_list [] = reverse acc
+      go acc  fv_list (tv:tvs)
+        = go acc' fv_list' tvs
+        where
+          (acc', fv_list') = insert tv acc fv_list
+
+      insert :: Name       -- var to insert
+             -> [Name]     -- sorted list, in reverse order
+             -> [Set Name] -- list of fvs, as above
+             -> ([Name], [Set Name])   -- augmented lists
+      insert tv []     []         = ([tv], [kindFVSet tv])
+      insert tv (a:as) (fvs:fvss)
+        | tv `Set.member` fvs
+        , (as', fvss') <- insert tv as fvss
+        = (a:as', fvs `Set.union` fv_tv : fvss')
+
         | otherwise
-        = PlainTV n
+        = (tv:a:as, fvs `Set.union` fv_tv : fvs : fvss)
+        where
+          fv_tv = kindFVSet tv
+
+         -- lists not in correspondence
+      insert _ _ _ = error "scopedSort"
+
+      kindFVSet n =
+        maybe Set.empty (Set.fromList . freeVariables) (Map.lookup n varKindSigs)
+      ascribeWithKind n =
+        maybe (PlainTV n) (KindedTV n) (Map.lookup n varKindSigs)
 
       -- An annoying wrinkle: GHCs before 8.0 don't support explicitly
       -- quantifying kinds, so something like @forall k (a :: k)@ would be
@@ -1674,7 +1718,7 @@ freeVariablesWellScoped tys =
 
   in map ascribeWithKind $
      filter (not . isKindBinderOnOldGHCs) $
-     map lookupVertex tg
+     scopedSort fvs
 
 -- | Substitute all of the free variables in a type with fresh ones
 freshenFreeVariables :: Type -> Q Type
