@@ -14,6 +14,8 @@
 * Fix a bug in which `normalizeDec` would report an incorrect number of
   `datatypeVars` for GADT declarations with explicit return kinds (such as
   `data Foo :: * -> * where`).
+
+## 0.2.11.0 -- 2019-02-26
 * Fix a bug in which `freeVariablesWellScoped` would sometimes not preserve
   the left-to-right ordering of `Name`s generated with `newName`.
 
