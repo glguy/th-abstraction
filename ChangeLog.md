@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.3.0.0 -- 2019-04-26
 * Breaking change: the `datatypeVars` field of `DatatypeInfo` is now of type
   `[TyVarBndr]` instead of `[Type]`, as it now refers to all of the bound type
   variables in the data type. The old `datatypeVars` field has been renamed to
