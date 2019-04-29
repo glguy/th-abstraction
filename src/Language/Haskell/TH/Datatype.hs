@@ -566,14 +566,14 @@ repairDataFam famD instD
       , NewtypeInstD cx mbInstVars nts k c deriv <- instD
       , con :| ts <- decomposeType nts
       = NewtypeInstD cx mbInstVars
-          (foldl' AppT con (repairVarKindsWith (fromMaybe dvars mbInstVars) ts))
+          (foldl' AppT con (repairVarKindsWith dvars ts))
           k c deriv
 
       | DataFamilyD _ dvars _ <- famD
       , DataInstD cx mbInstVars nts k c deriv <- instD
       , con :| ts <- decomposeType nts
       = DataInstD cx mbInstVars
-          (foldl' AppT con (repairVarKindsWith (fromMaybe dvars mbInstVars) ts))
+          (foldl' AppT con (repairVarKindsWith dvars ts))
           k c deriv
 # elif MIN_VERSION_template_haskell(2,11,0)
       | DataFamilyD _ dvars _ <- famD

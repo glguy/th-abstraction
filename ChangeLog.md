@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix a bug which would cause data family information to be reified incorrectly
+  with GHC 8.8+ in some situations.
+
 ## 0.3.0.0 -- 2019-04-26
 * Breaking change: the `datatypeVars` field of `DatatypeInfo` is now of type
   `[TyVarBndr]` instead of `[Type]`, as it now refers to all of the bound type

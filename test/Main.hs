@@ -72,6 +72,7 @@ main =
      famLocalDecTest2
      recordFamTest
      t46Test
+     t73Test
 #endif
      fixityLookupTest
 #if __GLASGOW_HASKELL__ >= 704
@@ -648,6 +649,30 @@ t46Test =
            unless (null ctxt) (fail "regression test for ticket #46 failed")
          _ -> fail "T46 should have exactly one constructor"
        [| return () |])
+
+t73Test :: IO ()
+t73Test =
+  $(do info <- reifyDatatype 'MkT73
+       let b    = mkName "b"
+           bTvb = KindedTV b starK
+           bVar = VarT b
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = ''T73
+           , datatypeContext   = []
+           , datatypeVars      = [bTvb]
+           , datatypeInstTypes = [ConT ''Int, SigT bVar starK]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT73
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [bVar]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }]
+           }
+   )
 #endif
 
 fixityLookupTest :: IO ()

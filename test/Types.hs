@@ -108,6 +108,9 @@ data family FamLocalDec2 a b c
 
 data family   T46 a b c
 data instance T46 (f (p :: *)) (f p) q = MkT46 q
+
+data family   T73 a   b
+data instance T73 Int b = MkT73 b
 #endif
 
 #if __GLASGOW_HASKELL__ >= 704
