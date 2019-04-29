@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.3.1.0 -- 2019-04-28
 * Fix a bug which would cause data family information to be reified incorrectly
   with GHC 8.8+ in some situations.
 
