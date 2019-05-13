@@ -952,6 +952,24 @@ polyKindedExTyvarTest =
                  ++ show [a1, a2]
        [| return () |]
    )
+
+t75Test :: IO ()
+t75Test =
+  $(do info <- reifyDatatype ''T75
+       case datatypeCons info of
+         [c] -> let datatypeVarTypes    = map (VarT . tvName) $ datatypeVars info
+                    constructorVarKinds = map tvKind $ constructorVars c in
+                unless (datatypeVarTypes == constructorVarKinds) $
+                  fail $ "Mismatch between datatypeVars and constructorVars' kinds: "
+                      ++ unlines [ "datatypeVars:           "
+                                     ++ pprint datatypeVarTypes
+                                 , "constructorVars' kinds: "
+                                     ++ pprint constructorVarKinds
+                                 ]
+         cs  -> fail $ "Unexpected number of constructors for T75: "
+                    ++ show (length cs)
+       [| return () |]
+   )
 #endif
 
 #if __GLASGOW_HASKELL__ >= 807

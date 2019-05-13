@@ -1766,11 +1766,7 @@ instance TypeSubstitution Type where
   applySubstitution subst = go
     where
       go (ForallT tvs context t) =
-        let subst' = foldl' (flip Map.delete) subst (map tvName tvs)
-
-            mapTvbKind :: (Kind -> Kind) -> TyVarBndr -> TyVarBndr
-            mapTvbKind f (PlainTV n)    = PlainTV n
-            mapTvbKind f (KindedTV n k) = KindedTV n (f k) in
+        let subst' = foldl' (flip Map.delete) subst (map tvName tvs) in
         ForallT (map (mapTvbKind (applySubstitution subst')) tvs)
                 (applySubstitution subst' context)
                 (applySubstitution subst' t)
@@ -1813,15 +1809,22 @@ instance TypeSubstitution Type where
 
 instance TypeSubstitution ConstructorInfo where
   freeVariables ci =
-      (freeVariables (constructorContext ci) `union`
-       freeVariables (constructorFields ci))
+      (concatMap (freeVariables . tvKind) (constructorVars ci)
+          `union` freeVariables (constructorContext ci)
+          `union` freeVariables (constructorFields ci))
       \\ (tvName <$> constructorVars ci)
 
   applySubstitution subst ci =
     let subst' = foldl' (flip Map.delete) subst (map tvName (constructorVars ci)) in
-    ci { constructorContext = applySubstitution subst' (constructorContext ci)
+    ci { constructorVars    = map (mapTvbKind (applySubstitution subst'))
+                                  (constructorVars ci)
+       , constructorContext = applySubstitution subst' (constructorContext ci)
        , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
+
+mapTvbKind :: (Kind -> Kind) -> TyVarBndr -> TyVarBndr
+mapTvbKind f (PlainTV n)    = PlainTV n
+mapTvbKind f (KindedTV n k) = KindedTV n (f k)
 
 -- 'Pred' became a type synonym for 'Type'
 #if !MIN_VERSION_template_haskell(2,10,0)
