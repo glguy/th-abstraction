@@ -139,6 +139,9 @@ data Prox (a :: k) = Prox
 
 data T48 :: Type -> Type where
   MkT48 :: forall a (x :: a). Prox x -> T48 a
+
+data T75 (k :: Type) where
+  MkT75 :: forall k (a :: k). Prox a -> T75 k
 #endif
 
 -- We must define these here due to Template Haskell staging restrictions

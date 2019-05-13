@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix a bug in which the `TypeSubstitution ConstructorInfo` instance would not
+  detect free kind variables in the `constructorVars`.
+
 ## 0.3.1.0 -- 2019-04-28
 * Fix a bug which would cause data family information to be reified incorrectly
   with GHC 8.8+ in some situations.
