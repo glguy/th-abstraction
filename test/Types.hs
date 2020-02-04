@@ -1,4 +1,4 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, ScopedTypeVariables #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, ScopedTypeVariables, TypeOperators #-}
 
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE ConstraintKinds #-}
@@ -67,6 +67,8 @@ data Gadt2 :: * -> * -> * where
 data VoidStoS (f :: * -> *)
 
 data StrictDemo = StrictDemo Int !Int {-# UNPACK #-} !Int
+
+type (:+:) = Either
 
 -- Data families
 data family T43Fam

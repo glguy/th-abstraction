@@ -1168,7 +1168,6 @@ kindsOfFVsOfTypes :: [Type] -> Map Name Kind
 kindsOfFVsOfTypes = foldMap go
   where
     go :: Type -> Map Name Kind
-    go (ForallT {}) = error "`forall` type used in data family pattern"
     go (AppT t1 t2) = go t1 `Map.union` go t2
     go (SigT t k) =
       let kSigs =
@@ -1180,7 +1179,16 @@ kindsOfFVsOfTypes = foldMap go
       in case t of
            VarT n -> Map.insert n k kSigs
            _      -> go t `Map.union` kSigs
+
+    go (ForallT {})    = forallError
+#if MIN_VERSION_template_haskell(2,16,0)
+    go (ForallVisT {}) = forallError
+#endif
+
     go _ = Map.empty
+
+    forallError :: a
+    forallError = error "`forall` type used in data family pattern"
 
 -- Look into a list of type variable binder and map each free variable name
 -- to its kind (also map the names that KindedTVs bind to their respective
@@ -1285,7 +1293,12 @@ resolveTypeSynonyms t =
 #endif
 #if MIN_VERSION_template_haskell(2,15,0)
        ImplicitParamT n t -> do
-         ImplicitParamT n `fmap` resolveTypeSynonyms t
+         ImplicitParamT n <$> resolveTypeSynonyms t
+#endif
+#if MIN_VERSION_template_haskell(2,16,0)
+       ForallVisT tvbs body ->
+         ForallVisT `fmap` mapM resolve_tvb_syns tvbs
+                      `ap` resolveTypeSynonyms body
 #endif
        _ -> notTypeSynCase f
 
@@ -1457,7 +1470,9 @@ curryType tvbs ctxt args res =
 resolveInfixT :: Type -> Q Type
 
 #if MIN_VERSION_template_haskell(2,11,0)
-resolveInfixT (ForallT vs cx t) = forallT vs (mapM resolveInfixT cx) (resolveInfixT t)
+resolveInfixT (ForallT vs cx t) = ForallT <$> traverse (traverseTvbKind resolveInfixT) vs
+                                          <*> mapM resolveInfixT cx
+                                          <*> resolveInfixT t
 resolveInfixT (f `AppT` x)      = resolveInfixT f `appT` resolveInfixT x
 resolveInfixT (ParensT t)       = resolveInfixT t
 resolveInfixT (InfixT l o r)    = conT o `appT` resolveInfixT l `appT` resolveInfixT r
@@ -1467,6 +1482,10 @@ resolveInfixT t@UInfixT{}       = resolveInfixT =<< resolveInfixT1 (gatherUInfix
 resolveInfixT (f `AppKindT` x)  = appKindT (resolveInfixT f) (resolveInfixT x)
 resolveInfixT (ImplicitParamT n t)
                                 = implicitParamT n $ resolveInfixT t
+# endif
+# if MIN_VERSION_template_haskell(2,16,0)
+resolveInfixT (ForallVisT vs t) = ForallVisT <$> traverse (traverseTvbKind resolveInfixT) vs
+                                             <*> resolveInfixT t
 # endif
 resolveInfixT t                 = return t
 
@@ -1640,6 +1659,10 @@ freeVariablesWellScoped tys =
           go_ty (AppKindT t k) = go_ty t `mappend` go_ty k
           go_ty (ImplicitParamT _ t) = go_ty t
 #endif
+#if MIN_VERSION_template_haskell(2,16,0)
+          go_ty (ForallVisT tvbs t) =
+            foldr (\tvb -> Map.delete (tvName tvb)) (go_ty t) tvbs
+#endif
           go_ty _ = mempty
 
           go_pred :: Pred -> Map Name Kind
@@ -1766,7 +1789,7 @@ instance TypeSubstitution Type where
   applySubstitution subst = go
     where
       go (ForallT tvs context t) =
-        let subst' = foldl' (flip Map.delete) subst (map tvName tvs) in
+        subst_tvbs tvs $ \subst' ->
         ForallT (map (mapTvbKind (applySubstitution subst')) tvs)
                 (applySubstitution subst' context)
                 (applySubstitution subst' t)
@@ -1783,15 +1806,21 @@ instance TypeSubstitution Type where
       go (ImplicitParamT n t)
                          = ImplicitParamT n (go t)
 #endif
+#if MIN_VERSION_template_haskell(2,16,0)
+      go (ForallVisT tvs t) =
+        subst_tvbs tvs $ \subst' ->
+        ForallVisT (map (mapTvbKind (applySubstitution subst')) tvs)
+                   (applySubstitution subst' t)
+#endif
       go t               = t
+
+      subst_tvbs :: [TyVarBndr] -> (Map Name Type -> a) -> a
+      subst_tvbs tvs k = k $ foldl' (flip Map.delete) subst (map tvName tvs)
 
   freeVariables t =
     case t of
       ForallT tvs context t' ->
-          (concatMap (freeVariables . tvKind) tvs
-              `union` freeVariables context
-              `union` freeVariables t')
-          \\ map tvName tvs
+          fvs_under_forall tvs (freeVariables context `union` freeVariables t')
       AppT f x      -> freeVariables f `union` freeVariables x
       SigT t' k     -> freeVariables t' `union` freeVariables k
       VarT v        -> [v]
@@ -1805,11 +1834,20 @@ instance TypeSubstitution Type where
       ImplicitParamT _ t
                     -> freeVariables t
 #endif
+#if MIN_VERSION_template_haskell(2,16,0)
+      ForallVisT tvs t'
+                    -> fvs_under_forall tvs (freeVariables t')
+#endif
       _             -> []
+    where
+      fvs_under_forall :: [TyVarBndr] -> [Name] -> [Name]
+      fvs_under_forall tvs fvs =
+        (freeVariables (map tvKind tvs) `union` fvs)
+        \\ map tvName tvs
 
 instance TypeSubstitution ConstructorInfo where
   freeVariables ci =
-      (concatMap (freeVariables . tvKind) (constructorVars ci)
+      (freeVariables (map tvKind (constructorVars ci))
           `union` freeVariables (constructorContext ci)
           `union` freeVariables (constructorFields ci))
       \\ (tvName <$> constructorVars ci)
@@ -1823,8 +1861,12 @@ instance TypeSubstitution ConstructorInfo where
        }
 
 mapTvbKind :: (Kind -> Kind) -> TyVarBndr -> TyVarBndr
-mapTvbKind f (PlainTV n)    = PlainTV n
+mapTvbKind f tvb@PlainTV{}  = tvb
 mapTvbKind f (KindedTV n k) = KindedTV n (f k)
+
+traverseTvbKind :: Applicative f => (Kind -> f Kind) -> TyVarBndr -> f TyVarBndr
+traverseTvbKind f tvb@PlainTV{}  = pure tvb
+traverseTvbKind f (KindedTV n k) = KindedTV n <$> f k
 
 -- 'Pred' became a type synonym for 'Type'
 #if !MIN_VERSION_template_haskell(2,10,0)
