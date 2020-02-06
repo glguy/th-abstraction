@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.3.2.0 -- 2020-02-06
 * Support substituting into and extracting free variables from `ForallVisT`s
   on `template-haskell-2.16.0.0` (GHC 8.10) or later.
 * Fix a bug in which `freeVariables` could report duplicate kind variables when
