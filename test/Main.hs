@@ -88,6 +88,10 @@ main =
      t59Test
      t61Test
      t66Test
+     t80Test
+#endif
+#if MIN_VERSION_template_haskell(2,11,0)
+     t79Test
 #endif
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
@@ -851,6 +855,41 @@ t66Test =
                    , constructorVariant    = NormalConstructor } ]
            }
    )
+
+t80Test :: IO ()
+t80Test = do
+  let [k,a,b] = map mkName ["k","a","b"]
+      -- forall k (a :: k) (b :: k). ()
+      t = ForallT [PlainTV k, KindedTV a (VarT k), KindedTV b (VarT k)] [] (ConT ''())
+
+      expected, actual :: [Name]
+      expected = []
+      actual   = freeVariables t
+
+  unless (expected == actual) $
+    fail $ "Bug in ForallT substitution: "
+        ++ unlines [ "Expected: " ++ pprint expected
+                   , "Actual:   " ++ pprint actual
+                   ]
+  return ()
+#endif
+
+#if MIN_VERSION_template_haskell(2,11,0)
+t79Test :: IO ()
+t79Test =
+  $(do let [a,b,c]  = map mkName ["a","b","c"]
+           t        = ForallT [KindedTV a (UInfixT (VarT b) ''(:+:) (VarT c))] []
+                              (ConT ''())
+           expected = ForallT [KindedTV a (ConT ''(:+:) `AppT` VarT b `AppT` VarT c)] []
+                              (ConT ''())
+       actual <- resolveInfixT t
+       unless (expected == actual) $
+         fail $ "resolveInfixT does not recur into the kinds of "
+             ++ "ForallT type variable binders: "
+             ++ unlines [ "Expected: " ++ pprint expected
+                        , "Actual:   " ++ pprint actual
+                        ]
+       [| return () |])
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800

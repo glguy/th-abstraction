@@ -1,6 +1,12 @@
 # Revision history for th-abstraction
 
 ## next -- ????-??-??
+* Support substituting into and extracting free variables from `ForallVisT`s
+  on `template-haskell-2.16.0.0` (GHC 8.10) or later.
+* Fix a bug in which `freeVariables` could report duplicate kind variables when
+  they occur in the kinds of the type variable binders in a `ForallT`.
+* Fix a bug in which `resolveInfixT` would not resolve `UInfixT`s occurring in
+  the kinds of type variable binders in a `ForallT`.
 * Fix a bug in which the `TypeSubstitution ConstructorInfo` instance would not
   detect free kind variables in the `constructorVars`.
 
