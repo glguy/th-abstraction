@@ -31,6 +31,7 @@ import GHC.Exts (Constraint)
 
 import Language.Haskell.TH hiding (Type)
 import Language.Haskell.TH.Datatype
+import Language.Haskell.TH.Datatype.TyVarBndr
 import Language.Haskell.TH.Lib (starK)
 
 #if __GLASGOW_HASKELL__ >= 800
@@ -171,7 +172,7 @@ gadtRecVanillaCI =
   where
     a             = VarT (mkName "a")
     names@[v1,v2] = map mkName ["v1","v2"]
-    [v1K,v2K]     = map (\n -> KindedTV n starK) names
+    [v1K,v2K]     = map (\n -> kindedTV n starK) names
 
 #if MIN_VERSION_template_haskell(2,7,0)
 gadtRecFamCI :: ConstructorInfo

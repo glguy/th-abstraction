@@ -8,13 +8,13 @@
 {-|
 Module      : Language.Haskell.TH.Datatype
 Description : Backwards-compatible interface to reified information about datatypes.
-Copyright   : Eric Mertens 2017
+Copyright   : Eric Mertens 2017-2020
 License     : ISC
 Maintainer  : emertens@gmail.com
 
 This module provides a flattened view of information about data types
 and newtypes that can be supported uniformly across multiple versions
-of the template-haskell package.
+of the @template-haskell@ package.
 
 Sample output for @'reifyDatatype' ''Maybe@
 
@@ -22,7 +22,7 @@ Sample output for @'reifyDatatype' ''Maybe@
 'DatatypeInfo'
  { 'datatypeContext'   = []
  , 'datatypeName'      = GHC.Base.Maybe
- , 'datatypeVars'      = [ 'KindedTV' a_3530822107858468866 'StarT' ]
+ , 'datatypeVars'      = [ 'KindedTV' a_3530822107858468866 () 'StarT' ]
  , 'datatypeInstTypes' = [ 'SigT' ('VarT' a_3530822107858468866) 'StarT' ]
  , 'datatypeVariant'   = 'Datatype'
  , 'datatypeCons'      =
@@ -133,6 +133,7 @@ import           Language.Haskell.TH
                                      hiding (Extension(..))
 #endif
 import           Language.Haskell.TH.Datatype.Internal
+import           Language.Haskell.TH.Datatype.TyVarBndr
 import           Language.Haskell.TH.Lib (arrowK, starK) -- needed for th-2.4
 
 #ifdef HAS_GENERICS
@@ -155,14 +156,14 @@ import           Data.Monoid (Monoid(..))
 -- * For ADTs declared with @data@ and @newtype@, it will likely be the case
 --   that 'datatypeVars' and 'datatypeInstTypes' coincide. For instance, given
 --   @newtype Id a = MkId a@, in the 'DatatypeInfo' for @Id@ we would
---   have @'datatypeVars' = ['KindedTV' a 'StarT']@ and
+--   have @'datatypeVars' = ['KindedTV' a () 'StarT']@ and
 --   @'datatypeInstVars' = ['SigT' ('VarT' a) 'StarT']@.
 --
 --   ADTs that leverage @PolyKinds@ may have more 'datatypeVars' than
 --   'datatypeInstTypes'. For instance, given @data Proxy (a :: k) = MkProxy@,
 --   in the 'DatatypeInfo' for @Proxy@ we would have
---   @'datatypeVars' = ['KindedTV' k 'StarT', 'KindedTV' a ('VarT' k)]@ (since
---   there are two variables, @k@ and @a@), whereas
+--   @'datatypeVars' = ['KindedTV' k () 'StarT', 'KindedTV' a () ('VarT' k)]@
+--   (since there are two variables, @k@ and @a@), whereas
 --   @'datatypeInstTypes' = ['SigT' ('VarT' a) ('VarT' k)]@, since there is
 --   only one explicit type argument to @Proxy@.
 --
@@ -178,16 +179,16 @@ import           Data.Monoid (Monoid(..))
 --   Then in the 'DatatypeInfo' for @F@'s data instance, we would have:
 --
 --   @
---   'datatypeVars'      = [ 'KindedTV' c 'StarT'
---                         , 'KindedTV' f 'StarT'
---                         , 'KindedTV' x 'StarT' ]
+--   'datatypeVars'      = [ 'KindedTV' c () 'StarT'
+--                         , 'KindedTV' f () 'StarT'
+--                         , 'KindedTV' x () 'StarT' ]
 --   'datatypeInstTypes' = [ 'AppT' ('ConT' ''Maybe) ('VarT' c)
 --                         , 'AppT' ('VarT' f) ('VarT' x) ]
 --   @
 data DatatypeInfo = DatatypeInfo
   { datatypeContext   :: Cxt               -- ^ Data type context (deprecated)
   , datatypeName      :: Name              -- ^ Type constructor
-  , datatypeVars      :: [TyVarBndr]       -- ^ Type parameters
+  , datatypeVars      :: [TyVarBndrUnit]   -- ^ Type parameters
   , datatypeInstTypes :: [Type]            -- ^ Argument types
   , datatypeVariant   :: DatatypeVariant   -- ^ Extra information
   , datatypeCons      :: [ConstructorInfo] -- ^ Normalize constructor information
@@ -214,7 +215,7 @@ data DatatypeVariant
 -- data types.
 data ConstructorInfo = ConstructorInfo
   { constructorName       :: Name               -- ^ Constructor name
-  , constructorVars       :: [TyVarBndr]        -- ^ Constructor type parameters
+  , constructorVars       :: [TyVarBndrUnit]    -- ^ Constructor type parameters
   , constructorContext    :: Cxt                -- ^ Constructor constraints
   , constructorFields     :: [Type]             -- ^ Constructor fields
   , constructorStrictness :: [FieldStrictness]  -- ^ Constructor fields' strictness
@@ -517,7 +518,7 @@ sanitizeStars = go
 -- A version of repairVarKindsWith that does much more extra work to
 -- (1) eta-expand missing type patterns, and (2) ensure that the kind
 -- signatures for these new type patterns match accordingly.
-repairVarKindsWith' :: [TyVarBndr] -> [Type] -> [Type]
+repairVarKindsWith' :: [TyVarBndr_ flag] -> [Type] -> [Type]
 repairVarKindsWith' dvars ts =
   let kindVars                = freeVariables . map kindPart
       kindPart (KindedTV _ k) = [k]
@@ -595,11 +596,11 @@ repairDataFam famD instD
 #endif
 repairDataFam _ instD = instD
 
-repairVarKindsWith :: [TyVarBndr] -> [Type] -> [Type]
+repairVarKindsWith :: [TyVarBndr_ flag] -> [Type] -> [Type]
 repairVarKindsWith = zipWith stealKindForType
 
 -- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
-stealKindForType :: TyVarBndr -> Type -> Type
+stealKindForType :: TyVarBndr_ flag -> Type -> Type
 stealKindForType tvb t@VarT{} = SigT t (tvKind tvb)
 stealKindForType _   t        = t
 
@@ -674,7 +675,7 @@ normalizeDecFor isReified dec =
       = return di
 
     -- Given a data type's instance types and kind, compute its free variables.
-    datatypeFreeVars :: [Type] -> Maybe Kind -> [TyVarBndr]
+    datatypeFreeVars :: [Type] -> Maybe Kind -> [TyVarBndrUnit]
     datatypeFreeVars instTys mbKind =
       freeVariablesWellScoped $ instTys ++
 #if MIN_VERSION_template_haskell(2,8,0)
@@ -683,7 +684,7 @@ normalizeDecFor isReified dec =
                                            [] -- No kind variables
 #endif
 
-    normalizeDataD :: Cxt -> Name -> [TyVarBndr] -> Maybe Kind
+    normalizeDataD :: Cxt -> Name -> [TyVarBndrUnit] -> Maybe Kind
                    -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalizeDataD context name tyvars mbKind cons variant =
       let params = bndrParams tyvars in
@@ -691,7 +692,7 @@ normalizeDecFor isReified dec =
                  params mbKind cons variant
 
     normalizeDataInstDPostTH2'15
-      :: String -> Cxt -> Maybe [TyVarBndr] -> Type -> Maybe Kind
+      :: String -> Cxt -> Maybe [TyVarBndrUnit] -> Type -> Maybe Kind
       -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalizeDataInstDPostTH2'15 what context mbTyvars nameInstTys
                                  mbKind cons variant =
@@ -710,7 +711,7 @@ normalizeDecFor isReified dec =
                  instTys mbKind cons variant
 
     -- The main worker of this function.
-    normalize' :: Cxt -> Name -> [TyVarBndr] -> [Type] -> Maybe Kind
+    normalize' :: Cxt -> Name -> [TyVarBndrUnit] -> [Type] -> Maybe Kind
                -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalize' context name tvbs instTys mbKind cons variant = do
       extra_tvbs <- mkExtraKindBinders $ fromMaybe starK mbKind
@@ -733,12 +734,12 @@ normalizeDecFor isReified dec =
 -- are fresh type variable names.
 --
 -- This expands kind synonyms if necessary.
-mkExtraKindBinders :: Kind -> Q [TyVarBndr]
+mkExtraKindBinders :: Kind -> Q [TyVarBndrUnit]
 mkExtraKindBinders kind = do
   kind' <- resolveKindSynonyms kind
   let (_, _, args :|- _) = uncurryKind kind'
   names <- replicateM (length args) (newName "x")
-  return $ zipWith KindedTV names args
+  return $ zipWith kindedTV names args
 
 -- | Is a declaration for a @data instance@ or @newtype instance@?
 isFamInstVariant :: DatatypeVariant -> Bool
@@ -749,16 +750,8 @@ isFamInstVariant dv =
     DataInstance    -> True
     NewtypeInstance -> True
 
-bndrParams :: [TyVarBndr] -> [Type]
-bndrParams = map $ \bndr ->
-  case bndr of
-    KindedTV t k -> SigT (VarT t) k
-    PlainTV  t   -> VarT t
-
--- | Extract the kind from a 'TyVarBndr'. Assumes 'PlainTV' has kind @*@.
-tvKind :: TyVarBndr -> Kind
-tvKind (PlainTV  _)   = starK
-tvKind (KindedTV _ k) = k
+bndrParams :: [TyVarBndr_ flag] -> [Type]
+bndrParams = map $ elimTV VarT (\n k -> SigT (VarT n) k)
 
 -- | Remove the outermost 'SigT'.
 stripSigT :: Type -> Type
@@ -770,7 +763,7 @@ normalizeDec' ::
   IsReifiedDec    {- ^ Is this a reified 'Dec'? -} ->
   Cxt             {- ^ Datatype context         -} ->
   Name            {- ^ Type constructor         -} ->
-  [TyVarBndr]     {- ^ Type parameters          -} ->
+  [TyVarBndrUnit] {- ^ Type parameters          -} ->
   [Type]          {- ^ Argument types           -} ->
   [Con]           {- ^ Constructors             -} ->
   DatatypeVariant {- ^ Extra information        -} ->
@@ -792,7 +785,7 @@ normalizeDec' reifiedDec context name params instTys cons variant =
 -- 'Dec'.
 normalizeCon ::
   Name            {- ^ Type constructor  -} ->
-  [TyVarBndr]     {- ^ Type parameters   -} ->
+  [TyVarBndrUnit] {- ^ Type parameters   -} ->
   [Type]          {- ^ Argument types    -} ->
   DatatypeVariant {- ^ Extra information -} ->
   Con             {- ^ Constructor       -} ->
@@ -802,7 +795,7 @@ normalizeCon = normalizeConFor isn'tReified
 normalizeConFor ::
   IsReifiedDec    {- ^ Is this a reified 'Dec'? -} ->
   Name            {- ^ Type constructor         -} ->
-  [TyVarBndr]     {- ^ Type parameters          -} ->
+  [TyVarBndrUnit] {- ^ Type parameters          -} ->
   [Type]          {- ^ Argument types           -} ->
   DatatypeVariant {- ^ Extra information        -} ->
   Con             {- ^ Constructor              -} ->
@@ -857,7 +850,7 @@ normalizeConFor reifiedDec typename params instTys variant =
       let defaultCase :: Con -> Q [ConstructorInfo]
           defaultCase = go [] [] False
             where
-              go :: [TyVarBndr]
+              go :: [TyVarBndrUnit]
                  -> Cxt
                  -> Bool -- Is this a GADT? (see the documentation for
                          -- for checkGadtFixity)
@@ -883,7 +876,7 @@ normalizeConFor reifiedDec typename params instTys variant =
                     return [ConstructorInfo n tyvars context
                               (takeFieldTypes xs) stricts (RecordConstructor fns)]
                   ForallC tyvars' context' c' ->
-                    go (tyvars'++tyvars) (context'++context) True c'
+                    go (changeTVFlags () tyvars'++tyvars) (context'++context) True c'
 #if MIN_VERSION_template_haskell(2,11,0)
                   GadtC ns xs innerType ->
                     let (bangs, ts) = unzip xs
@@ -1016,9 +1009,9 @@ normalizeStrictness Unpacked  = unpackedAnnot
 
 normalizeGadtC ::
   Name              {- ^ Type constructor             -} ->
-  [TyVarBndr]       {- ^ Type parameters              -} ->
+  [TyVarBndrUnit]   {- ^ Type parameters              -} ->
   [Type]            {- ^ Argument types               -} ->
-  [TyVarBndr]       {- ^ Constructor parameters       -} ->
+  [TyVarBndrUnit]   {- ^ Constructor parameters       -} ->
   Cxt               {- ^ Constructor context          -} ->
   [Name]            {- ^ Constructor names            -} ->
   Type              {- ^ Declared type of constructor -} ->
@@ -1040,7 +1033,8 @@ normalizeGadtC typename params instTys tyvars context names innerType
      -- so we use freeVariablesWellScoped to obtain the implicit type
      -- variables' binders before proceeding.
      let implicitTyvars = freeVariablesWellScoped
-                          [curryType tyvars context fields innerType]
+                          [curryType (changeTVFlags SpecifiedSpec tyvars)
+                                     context fields innerType]
          allTyvars = implicitTyvars ++ tyvars
 
      -- Due to GHC Trac #13885, it's possible that the type variables bound by
@@ -1055,10 +1049,9 @@ normalizeGadtC typename params instTys tyvars context names innerType
                                            | n <- conBoundNames ]
      let conSubst'     = fmap VarT conSubst
          renamedTyvars =
-           map (\tvb -> case tvb of
-                          PlainTV n    -> PlainTV  (conSubst Map.! n)
-                          KindedTV n k -> KindedTV (conSubst Map.! n)
-                                                   (applySubstitution conSubst' k)) allTyvars
+           map (elimTV (\n   -> plainTV  (conSubst Map.! n))
+                       (\n k -> kindedTV (conSubst Map.! n)
+                                         (applySubstitution conSubst' k))) allTyvars
          renamedContext   = applySubstitution conSubst' context
          renamedInnerType = applySubstitution conSubst' innerType
          renamedFields    = applySubstitution conSubst' fields
@@ -1193,19 +1186,18 @@ kindsOfFVsOfTypes = foldMap go
 -- Look into a list of type variable binder and map each free variable name
 -- to its kind (also map the names that KindedTVs bind to their respective
 -- kinds). This function considers the kind of a PlainTV to be *.
-kindsOfFVsOfTvbs :: [TyVarBndr] -> Map Name Kind
+kindsOfFVsOfTvbs :: [TyVarBndr_ flag] -> Map Name Kind
 kindsOfFVsOfTvbs = foldMap go
   where
-    go :: TyVarBndr -> Map Name Kind
-    go (PlainTV n) = Map.singleton n starK
-    go (KindedTV n k) =
-      let kSigs =
+    go :: TyVarBndr_ flag -> Map Name Kind
+    go = elimTV (\n -> Map.singleton n starK)
+                (\n k -> let kSigs =
 #if MIN_VERSION_template_haskell(2,8,0)
-                  kindsOfFVsOfTypes [k]
+                                     kindsOfFVsOfTypes [k]
 #else
-                  Map.empty
+                                     Map.empty
 #endif
-      in Map.insert n k kSigs
+                         in Map.insert n k kSigs)
 
 mergeArguments ::
   [Type] {- ^ outer parameters                    -} ->
@@ -1317,14 +1309,13 @@ resolveKindSynonyms = return -- One simply couldn't put type synonyms into
 #endif
 
 -- | Expand all of the type synonyms in a the kind of a 'TyVarBndr'.
-resolve_tvb_syns :: TyVarBndr -> Q TyVarBndr
-resolve_tvb_syns tvb@PlainTV{}  = return tvb
-resolve_tvb_syns (KindedTV n k) = KindedTV n <$> resolveKindSynonyms k
+resolve_tvb_syns :: TyVarBndr_ flag -> Q (TyVarBndr_ flag)
+resolve_tvb_syns = mapMTVKind resolveKindSynonyms
 
 expandSynonymRHS ::
-  [TyVarBndr] {- ^ Substitute these variables... -} ->
-  [Type]      {- ^ ...with these types... -} ->
-  Type        {- ^ ...inside of this type. -} ->
+  [TyVarBndr_ flag] {- ^ Substitute these variables... -} ->
+  [Type]            {- ^ ...with these types... -} ->
+  Type              {- ^ ...inside of this type. -} ->
   Type
 expandSynonymRHS synvars ts def =
   let argNames    = map tvName synvars
@@ -1433,7 +1424,7 @@ data NonEmptySnoc a = [a] :|- a
 -- becomes
 --
 --   ([a, b], [Show a, b ~ Int], [a -> b, Char] :|- Int)
-uncurryType :: Type -> ([TyVarBndr], Cxt, NonEmptySnoc Type)
+uncurryType :: Type -> ([TyVarBndrSpec], Cxt, NonEmptySnoc Type)
 uncurryType = go [] [] []
   where
     go tvbs ctxt args (AppT (AppT ArrowT t1) t2) = go tvbs ctxt (t1:args) t2
@@ -1448,7 +1439,7 @@ uncurryType = go [] [] []
 -- becomes
 --
 --   ([a, b], [], [Maybe a, Maybe b] :|- Type)
-uncurryKind :: Kind -> ([TyVarBndr], Cxt, NonEmptySnoc Kind)
+uncurryKind :: Kind -> ([TyVarBndrSpec], Cxt, NonEmptySnoc Kind)
 #if MIN_VERSION_template_haskell(2,8,0)
 uncurryKind = uncurryType
 #else
@@ -1460,7 +1451,7 @@ uncurryKind = go []
 
 -- Reconstruct a function type from its type variable binders, context,
 -- argument types and return type.
-curryType :: [TyVarBndr] -> Cxt -> [Type] -> Type -> Type
+curryType :: [TyVarBndrSpec] -> Cxt -> [Type] -> Type -> Type
 curryType tvbs ctxt args res =
   ForallT tvbs ctxt $ foldr (\arg t -> ArrowT `AppT` arg `AppT` t) res args
 
@@ -1470,7 +1461,7 @@ curryType tvbs ctxt args res =
 resolveInfixT :: Type -> Q Type
 
 #if MIN_VERSION_template_haskell(2,11,0)
-resolveInfixT (ForallT vs cx t) = ForallT <$> traverse (traverseTvbKind resolveInfixT) vs
+resolveInfixT (ForallT vs cx t) = ForallT <$> traverse (traverseTVKind resolveInfixT) vs
                                           <*> mapM resolveInfixT cx
                                           <*> resolveInfixT t
 resolveInfixT (f `AppT` x)      = resolveInfixT f `appT` resolveInfixT x
@@ -1484,7 +1475,7 @@ resolveInfixT (ImplicitParamT n t)
                                 = implicitParamT n $ resolveInfixT t
 # endif
 # if MIN_VERSION_template_haskell(2,16,0)
-resolveInfixT (ForallVisT vs t) = ForallVisT <$> traverse (traverseTvbKind resolveInfixT) vs
+resolveInfixT (ForallVisT vs t) = ForallVisT <$> traverse (traverseTVKind resolveInfixT) vs
                                              <*> resolveInfixT t
 # endif
 resolveInfixT t                 = return t
@@ -1553,13 +1544,6 @@ showFixityDirection InfixL = "infixl"
 showFixityDirection InfixR = "infixr"
 showFixityDirection InfixN = "infix"
 
-
--- | Extract the type variable name from a 'TyVarBndr' ignoring the
--- kind signature if one exists.
-tvName :: TyVarBndr -> Name
-tvName (PlainTV  name  ) = name
-tvName (KindedTV name _) = name
-
 takeFieldNames :: [(Name,a,b)] -> [Name]
 takeFieldNames xs = [a | (a,_,_) <- xs]
 
@@ -1596,7 +1580,7 @@ quantifyType t
   | otherwise
   = ForallT tvbs [] t
   where
-    tvbs = freeVariablesWellScoped [t]
+    tvbs = changeTVFlags SpecifiedSpec $ freeVariablesWellScoped [t]
 
 -- | Take a list of 'Type's, find their free variables, and sort them
 -- according to dependency order.
@@ -1632,7 +1616,7 @@ quantifyType t
 --
 -- On older GHCs, this takes measures to avoid returning explicitly bound
 -- kind variables, which was not possible before @TypeInType@.
-freeVariablesWellScoped :: [Type] -> [TyVarBndr]
+freeVariablesWellScoped :: [Type] -> [TyVarBndrUnit]
 freeVariablesWellScoped tys =
   let fvs :: [Name]
       fvs = freeVariables tys
@@ -1724,7 +1708,7 @@ freeVariablesWellScoped tys =
       kindFVSet n =
         maybe Set.empty (Set.fromList . freeVariables) (Map.lookup n varKindSigs)
       ascribeWithKind n =
-        maybe (PlainTV n) (KindedTV n) (Map.lookup n varKindSigs)
+        maybe (plainTV n) (kindedTV n) (Map.lookup n varKindSigs)
 
       -- An annoying wrinkle: GHCs before 8.0 don't support explicitly
       -- quantifying kinds, so something like @forall k (a :: k)@ would be
@@ -1790,7 +1774,7 @@ instance TypeSubstitution Type where
     where
       go (ForallT tvs context t) =
         subst_tvbs tvs $ \subst' ->
-        ForallT (map (mapTvbKind (applySubstitution subst')) tvs)
+        ForallT (map (mapTVKind (applySubstitution subst')) tvs)
                 (applySubstitution subst' context)
                 (applySubstitution subst' t)
       go (AppT f x)      = AppT (go f) (go x)
@@ -1809,12 +1793,12 @@ instance TypeSubstitution Type where
 #if MIN_VERSION_template_haskell(2,16,0)
       go (ForallVisT tvs t) =
         subst_tvbs tvs $ \subst' ->
-        ForallVisT (map (mapTvbKind (applySubstitution subst')) tvs)
+        ForallVisT (map (mapTVKind (applySubstitution subst')) tvs)
                    (applySubstitution subst' t)
 #endif
       go t               = t
 
-      subst_tvbs :: [TyVarBndr] -> (Map Name Type -> a) -> a
+      subst_tvbs :: [TyVarBndr_ flag] -> (Map Name Type -> a) -> a
       subst_tvbs tvs k = k $ foldl' (flip Map.delete) subst (map tvName tvs)
 
   freeVariables t =
@@ -1840,7 +1824,7 @@ instance TypeSubstitution Type where
 #endif
       _             -> []
     where
-      fvs_under_forall :: [TyVarBndr] -> [Name] -> [Name]
+      fvs_under_forall :: [TyVarBndr_ flag] -> [Name] -> [Name]
       fvs_under_forall tvs fvs =
         (freeVariables (map tvKind tvs) `union` fvs)
         \\ map tvName tvs
@@ -1854,19 +1838,11 @@ instance TypeSubstitution ConstructorInfo where
 
   applySubstitution subst ci =
     let subst' = foldl' (flip Map.delete) subst (map tvName (constructorVars ci)) in
-    ci { constructorVars    = map (mapTvbKind (applySubstitution subst'))
+    ci { constructorVars    = map (mapTVKind (applySubstitution subst'))
                                   (constructorVars ci)
        , constructorContext = applySubstitution subst' (constructorContext ci)
        , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
-
-mapTvbKind :: (Kind -> Kind) -> TyVarBndr -> TyVarBndr
-mapTvbKind f tvb@PlainTV{}  = tvb
-mapTvbKind f (KindedTV n k) = KindedTV n (f k)
-
-traverseTvbKind :: Applicative f => (Kind -> f Kind) -> TyVarBndr -> f TyVarBndr
-traverseTvbKind f tvb@PlainTV{}  = pure tvb
-traverseTvbKind f (KindedTV n k) = KindedTV n <$> f k
 
 -- 'Pred' became a type synonym for 'Type'
 #if !MIN_VERSION_template_haskell(2,10,0)
@@ -1888,11 +1864,10 @@ instance TypeSubstitution Kind where
 
 -- | Substitutes into the kinds of type variable binders.
 -- Not capture-avoiding.
-substTyVarBndrs :: Map Name Type -> [TyVarBndr] -> [TyVarBndr]
+substTyVarBndrs :: Map Name Type -> [TyVarBndr_ flag] -> [TyVarBndr_ flag]
 substTyVarBndrs subst = map go
   where
-    go tvb@(PlainTV {}) = tvb
-    go (KindedTV n k)   = KindedTV n (applySubstitution subst k)
+    go = mapTVKind (applySubstitution subst)
 
 ------------------------------------------------------------------------
 
@@ -2014,9 +1989,8 @@ giveCIVarsStarKinds :: ConstructorInfo -> ConstructorInfo
 giveCIVarsStarKinds info =
   info { constructorVars = map giveTyVarBndrStarKind (constructorVars info) }
 
-giveTyVarBndrStarKind :: TyVarBndr -> TyVarBndr
-giveTyVarBndrStarKind (PlainTV n)    = KindedTV n starK
-giveTyVarBndrStarKind tvb@KindedTV{} = tvb
+giveTyVarBndrStarKind :: TyVarBndrUnit -> TyVarBndrUnit
+giveTyVarBndrStarKind tvb = elimTV (\n -> kindedTV n starK) (\_ _ -> tvb) tvb
 
 giveTypeStarKind :: Type -> Type
 giveTypeStarKind t@(VarT n) = SigT t starK
@@ -2062,11 +2036,11 @@ repair13618 info =
 
 -- | Backward compatible version of 'dataD'
 dataDCompat ::
-  CxtQ        {- ^ context                 -} ->
-  Name        {- ^ type constructor        -} ->
-  [TyVarBndr] {- ^ type parameters         -} ->
-  [ConQ]      {- ^ constructor definitions -} ->
-  [Name]      {- ^ derived class names     -} ->
+  CxtQ            {- ^ context                 -} ->
+  Name            {- ^ type constructor        -} ->
+  [TyVarBndrUnit] {- ^ type parameters         -} ->
+  [ConQ]          {- ^ constructor definitions -} ->
+  [Name]          {- ^ derived class names     -} ->
   DecQ
 #if MIN_VERSION_template_haskell(2,12,0)
 dataDCompat c n ts cs ds =
@@ -2082,11 +2056,11 @@ dataDCompat = dataD
 
 -- | Backward compatible version of 'newtypeD'
 newtypeDCompat ::
-  CxtQ        {- ^ context                 -} ->
-  Name        {- ^ type constructor        -} ->
-  [TyVarBndr] {- ^ type parameters         -} ->
-  ConQ        {- ^ constructor definition  -} ->
-  [Name]      {- ^ derived class names     -} ->
+  CxtQ            {- ^ context                 -} ->
+  Name            {- ^ type constructor        -} ->
+  [TyVarBndrUnit] {- ^ type parameters         -} ->
+  ConQ            {- ^ constructor definition  -} ->
+  [Name]          {- ^ derived class names     -} ->
   DecQ
 #if MIN_VERSION_template_haskell(2,12,0)
 newtypeDCompat c n ts cs ds =
@@ -2102,10 +2076,10 @@ newtypeDCompat = newtypeD
 
 -- | Backward compatible version of 'tySynInstD'
 tySynInstDCompat ::
-  Name                {- ^ type family name    -}   ->
-  Maybe [Q TyVarBndr] {- ^ type variable binders -} ->
-  [TypeQ]             {- ^ instance parameters -}   ->
-  TypeQ               {- ^ instance result     -}   ->
+  Name                    {- ^ type family name    -}   ->
+  Maybe [Q TyVarBndrUnit] {- ^ type variable binders -} ->
+  [TypeQ]                 {- ^ instance parameters -}   ->
+  TypeQ                   {- ^ instance result     -}   ->
   DecQ
 #if MIN_VERSION_template_haskell(2,15,0)
 tySynInstDCompat n mtvbs ps r = TySynInstD <$> (TySynEqn <$> mapM sequence mtvbs

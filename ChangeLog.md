@@ -1,5 +1,20 @@
 # Revision history for th-abstraction
 
+## 0.4.0.0 -- ????-??-??
+* Adapt to the `TyVarBndr` data type gaining a new `flag` type parameter
+  (in `template-haskell-2.17.0.0`) to represent its specificity:
+  * Introduce a new `Language.Haskell.TH.Datatype.TyVarBndr` module that
+    defines `TyVarBndr_`, a backwards-compatible type synonym for `TyVarBndr`,
+    as well as backporting `TyVarBndrSpec`, `TyVarBndrUnit`, and `Specificity`.
+    This module also defines other useful functions for constructing and
+    manipulating `TyVarBndr`s.
+  * The types in `Language.Haskell.TH.Datatype` now use `TyVarBndr_`,
+    `TyVarBndrUnit`, and `TyVarBndrSpec` where appropriate. Technically, this
+    is not a breaking change, since all three are simple type synonyms around
+    `TyVarBndr`, but it is likely that you will need to update your
+    `th-abstraction`-using code anyway if it involves a `TyVarBndr`-consuming
+    function.
+
 ## 0.3.2.0 -- 2020-02-06
 * Support substituting into and extracting free variables from `ForallVisT`s
   on `template-haskell-2.16.0.0` (GHC 8.10) or later.
