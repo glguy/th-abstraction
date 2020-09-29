@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## 0.4.0.0 -- ????-??-??
+## 0.4.0.0 -- 2020-09-29
 * Adapt to the `TyVarBndr` data type gaining a new `flag` type parameter
   (in `template-haskell-2.17.0.0`) to represent its specificity:
   * Introduce a new `Language.Haskell.TH.Datatype.TyVarBndr` module that
