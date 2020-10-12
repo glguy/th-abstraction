@@ -426,7 +426,7 @@ t58Test =
            , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "MkFoo"
-                   , constructorVars       = [kindedTV a starK]
+                   , constructorVars       = [plainTV a]
                    , constructorContext    = []
                    , constructorFields     = [VarT a]
                    , constructorStrictness = [notStrictAnnot]
@@ -491,8 +491,8 @@ quotedTest =
          DatatypeInfo
            { datatypeName      = mkName "Quoted"
            , datatypeContext   = []
-           , datatypeVars      = [kindedTV a starK]
-           , datatypeInstTypes = [SigT aVar starK]
+           , datatypeVars      = [plainTV a]
+           , datatypeInstTypes = [aVar]
            , datatypeVariant   = DataInstance
            , datatypeCons      =
                [ ConstructorInfo
@@ -620,15 +620,14 @@ famLocalDecTest2 =
   $(do [dec] <- [d| data instance FamLocalDec2 Int (a, b) a = FamLocalDec2Int { fm0 :: (b, a), fm1 :: Int } |]
        info <- normalizeDec dec
        let names            = map mkName ["a", "b"]
-           [aTvb,bTvb]      = map (\v -> kindedTV v starK) names
+           [aTvb,bTvb]      = map plainTV names
            vars@[aVar,bVar] = map (VarT . mkName) ["a", "b"]
-           [aSig,bSig]      = map (\v -> SigT v starK) vars
        validateDI info
          DatatypeInfo
            { datatypeName      = ''FamLocalDec2
            , datatypeContext   = []
            , datatypeVars      = [aTvb,bTvb]
-           , datatypeInstTypes = [ConT ''Int, TupleT 2 `AppT` aVar `AppT` bVar, aSig]
+           , datatypeInstTypes = [ConT ''Int, TupleT 2 `AppT` aVar `AppT` bVar, aVar]
            , datatypeVariant   = DataInstance
            , datatypeCons      =
                [ ConstructorInfo
@@ -841,9 +840,9 @@ t66Test =
          DatatypeInfo
            { datatypeName      = mkName "Foo"
            , datatypeContext   = []
-           , datatypeVars      = [ kindedTV a starK, kindedTV b starK
+           , datatypeVars      = [ plainTV a, plainTV b
                                  , kindedTV f fKind, kindedTV x starK ]
-           , datatypeInstTypes = [ SigT (VarT a) starK, SigT (VarT b) starK
+           , datatypeInstTypes = [ VarT a, VarT b
                                  , SigT (VarT f) fKind, SigT (VarT x) starK ]
            , datatypeVariant   = Datatype
            , datatypeCons      =

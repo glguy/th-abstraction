@@ -718,7 +718,7 @@ normalizeDecFor isReified dec =
       let tvbs'    = tvbs ++ extra_tvbs
           instTys' = instTys ++ bndrParams extra_tvbs
       dec <- normalizeDec' isReified context name tvbs' instTys' cons variant
-      repair13618' $ giveDIVarsStarKinds dec
+      repair13618' $ giveDIVarsStarKinds isReified dec
 
 -- | Create new kind variable binder names corresponding to the return kind of
 -- a data type. This is useful when you have a data type like:
@@ -801,7 +801,7 @@ normalizeConFor ::
   Con             {- ^ Constructor              -} ->
   Q [ConstructorInfo]
 normalizeConFor reifiedDec typename params instTys variant =
-  fmap (map giveCIVarsStarKinds) . dispatch
+  fmap (map (giveCIVarsStarKinds reifiedDec)) . dispatch
   where
     -- A GADT constructor is declared infix when:
     --
@@ -1978,23 +1978,33 @@ isn'tReified = False
 
 -- On old versions of GHC, reify would not give you kind signatures for
 -- GADT type variables of kind *. To work around this, we insert the kinds
--- manually on any types without a signature.
+-- manually on any reified type variable binders without a signature. However,
+-- don't do this for quoted type variable binders (#84).
 
-giveDIVarsStarKinds :: DatatypeInfo -> DatatypeInfo
-giveDIVarsStarKinds info =
-  info { datatypeVars      = map giveTyVarBndrStarKind (datatypeVars info)
-       , datatypeInstTypes = map giveTypeStarKind (datatypeInstTypes info) }
+giveDIVarsStarKinds :: IsReifiedDec -> DatatypeInfo -> DatatypeInfo
+giveDIVarsStarKinds isReified info =
+  info { datatypeVars      = map (giveTyVarBndrStarKind isReified) (datatypeVars info)
+       , datatypeInstTypes = map (giveTypeStarKind isReified) (datatypeInstTypes info) }
 
-giveCIVarsStarKinds :: ConstructorInfo -> ConstructorInfo
-giveCIVarsStarKinds info =
-  info { constructorVars = map giveTyVarBndrStarKind (constructorVars info) }
+giveCIVarsStarKinds :: IsReifiedDec -> ConstructorInfo -> ConstructorInfo
+giveCIVarsStarKinds isReified info =
+  info { constructorVars = map (giveTyVarBndrStarKind isReified) (constructorVars info) }
 
-giveTyVarBndrStarKind :: TyVarBndrUnit -> TyVarBndrUnit
-giveTyVarBndrStarKind tvb = elimTV (\n -> kindedTV n starK) (\_ _ -> tvb) tvb
+giveTyVarBndrStarKind :: IsReifiedDec ->  TyVarBndrUnit -> TyVarBndrUnit
+giveTyVarBndrStarKind isReified tvb
+  | isReified
+  = elimTV (\n -> kindedTV n starK) (\_ _ -> tvb) tvb
+  | otherwise
+  = tvb
 
-giveTypeStarKind :: Type -> Type
-giveTypeStarKind t@(VarT n) = SigT t starK
-giveTypeStarKind t          = t
+giveTypeStarKind :: IsReifiedDec -> Type -> Type
+giveTypeStarKind isReified t
+  | isReified
+  = case t of
+      VarT n -> SigT t starK
+      _      -> t
+  | otherwise
+  = t
 
 -- | Prior to GHC 8.2.1, reify was broken for data instances and newtype
 -- instances. This code attempts to detect the problem and repair it if

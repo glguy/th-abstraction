@@ -1,5 +1,10 @@
 # Revision history for th-abstraction
 
+## next -- ????-??-??
+* Fix a bug in which `normalizeDec` would give incorrect kind annotations to
+  type variables in quoted `Dec`s. `normalizeDec` now leaves the kinds of
+  type variable binders alone.
+
 ## 0.4.0.0 -- 2020-09-29
 * Adapt to the `TyVarBndr` data type gaining a new `flag` type parameter
   (in `template-haskell-2.17.0.0`) to represent its specificity:
