@@ -1,5 +1,5 @@
 name:                th-abstraction
-version:             0.4.0.0
+version:             0.4.1.0
 synopsis:            Nicer interface for reified information about data types
 description:         This package normalizes variations in the interface for
                      inspecting datatype information via Template Haskell

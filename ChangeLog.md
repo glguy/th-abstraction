@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????-??-??
+## 0.4.1.0 -- 2020-12-09
 * Fix a bug in which `normalizeDec` would give incorrect kind annotations to
   type variables in quoted `Dec`s. `normalizeDec` now leaves the kinds of
   type variable binders alone.
