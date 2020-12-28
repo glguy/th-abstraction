@@ -1,5 +1,11 @@
 {-# LANGUAGE CPP #-}
 
+#if MIN_VERSION_template_haskell(2,12,0)
+{-# Language Safe #-}
+#elif __GLASGOW_HASKELL__ >= 702
+{-# Language Trustworthy #-}
+#endif
+
 {-|
 Module      : Language.Haskell.TH.Datatype.Internal
 Description : Backwards-compatible interface to reified information about datatypes.

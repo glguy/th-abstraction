@@ -1,5 +1,8 @@
 # Revision history for th-abstraction
 
+## 0.4.2.0 -- 202y-mm-dd
+* Explicitly mark modules as Safe (or Trustworthy for GHC versions prior to 8.4).
+
 ## 0.4.1.0 -- 2020-12-09
 * Fix a bug in which `normalizeDec` would give incorrect kind annotations to
   type variables in quoted `Dec`s. `normalizeDec` now leaves the kinds of

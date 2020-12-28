@@ -5,6 +5,12 @@
 {-# Language DeriveGeneric #-}
 #endif
 
+#if MIN_VERSION_template_haskell(2,12,0)
+{-# Language Safe #-}
+#elif __GLASGOW_HASKELL__ >= 702
+{-# Language Trustworthy #-}
+#endif
+
 {-|
 Module      : Language.Haskell.TH.Datatype.TyVarBndr
 Description : Backwards-compatible type variable binders
