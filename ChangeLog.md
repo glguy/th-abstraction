@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## 0.4.2.0 -- 202y-mm-dd
+## 0.4.2.0 -- 2020-12-30
 * Explicitly mark modules as Safe (or Trustworthy for GHC versions prior to 8.4).
 
 ## 0.4.1.0 -- 2020-12-09
