@@ -104,6 +104,7 @@ main =
      regressionTest44
      t63Test
      t70Test
+     t88Test
 
 adt1Test :: IO ()
 adt1Test =
@@ -1071,4 +1072,16 @@ t70Test =
        check fvsABExpected fvsABActual
        check fvsBAExpected fvsBAActual
 
+       [| return () |])
+
+t88Test :: IO ()
+t88Test =
+  $(do let unexpandedType = ConT ''Id
+           expected       = unexpandedType
+       actual <- resolveTypeSynonyms (ConT ''Id)
+       unless (expected == actual) $
+         fail $ "resolveTypeSynonyms incorrectly expands an undersaturated type synonym: "
+             ++ unlines [ "Expected: " ++ pprint expected
+                        , "Actual:   " ++ pprint actual
+                        ]
        [| return () |])

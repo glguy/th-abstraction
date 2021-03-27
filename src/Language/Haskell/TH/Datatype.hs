@@ -1254,9 +1254,13 @@ mergeArgumentKinds _ _ = (Map.empty, [])
 resolveTypeSynonyms :: Type -> Q Type
 resolveTypeSynonyms t =
   let (f, xs) = decomposeTypeArgs t
+      normal_xs = filterTANormals xs
 
-      notTypeSynCase :: Type -> Q Type
-      notTypeSynCase ty = foldl appTypeArg ty <$> mapM resolveTypeArgSynonyms xs
+      -- Either the type is not headed by a type synonym, or it is headed by a
+      -- type synonym that is not applied to enough arguments. Leave the type
+      -- alone and only expand its arguments.
+      defaultCase :: Type -> Q Type
+      defaultCase ty = foldl appTypeArg ty <$> mapM resolveTypeArgSynonyms xs
 
       expandCon :: Name -- The Name to check whether it is a type synonym or not
                 -> Type -- The argument type to fall back on if the supplied
@@ -1266,8 +1270,9 @@ resolveTypeSynonyms t =
         mbInfo <- reifyMaybe n
         case mbInfo of
           Just (TyConI (TySynD _ synvars def))
-            -> resolveTypeSynonyms $ expandSynonymRHS synvars (filterTANormals xs) def
-          _ -> notTypeSynCase ty
+            |  length normal_xs >= length synvars -- Don't expand undersaturated type synonyms (#88)
+            -> resolveTypeSynonyms $ expandSynonymRHS synvars normal_xs def
+          _ -> defaultCase ty
 
   in case f of
        ForallT tvbs ctxt body ->
@@ -1277,8 +1282,8 @@ resolveTypeSynonyms t =
        SigT ty ki -> do
          ty' <- resolveTypeSynonyms ty
          ki' <- resolveKindSynonyms ki
-         notTypeSynCase $ SigT ty' ki'
-       ConT n -> expandCon n (ConT n)
+         defaultCase $ SigT ty' ki'
+       ConT n -> expandCon n f
 #if MIN_VERSION_template_haskell(2,11,0)
        InfixT t1 n t2 -> do
          t1' <- resolveTypeSynonyms t1
@@ -1298,7 +1303,7 @@ resolveTypeSynonyms t =
          ForallVisT `fmap` mapM resolve_tvb_syns tvbs
                       `ap` resolveTypeSynonyms body
 #endif
-       _ -> notTypeSynCase f
+       _ -> defaultCase f
 
 -- | Expand all of the type synonyms in a 'TypeArg'.
 resolveTypeArgSynonyms :: TypeArg -> Q TypeArg
@@ -1338,6 +1343,7 @@ resolvePredSynonyms (ClassP n ts) = do
   mbInfo <- reifyMaybe n
   case mbInfo of
     Just (TyConI (TySynD _ synvars def))
+      |  length ts >= length synvars -- Don't expand undersaturated type synonyms (#88)
       -> resolvePredSynonyms $ typeToPred $ expandSynonymRHS synvars ts def
     _ -> ClassP n <$> mapM resolveTypeSynonyms ts
 resolvePredSynonyms (EqualP t1 t2) = do
