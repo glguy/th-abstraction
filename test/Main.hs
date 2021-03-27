@@ -31,7 +31,7 @@ module Main (main) where
 import           Control.Monad (zipWithM_)
 #endif
 
-import           Control.Monad (unless)
+import           Control.Monad (unless, when)
 import qualified Data.Map as Map
 
 #if MIN_VERSION_base(4,7,0)
@@ -105,6 +105,7 @@ main =
      t63Test
      t70Test
      t88Test
+     captureAvoidanceTest
 
 adt1Test :: IO ()
 adt1Test =
@@ -1085,3 +1086,14 @@ t88Test =
                         , "Actual:   " ++ pprint actual
                         ]
        [| return () |])
+
+captureAvoidanceTest :: IO ()
+captureAvoidanceTest = do
+  let a        = mkName "a"
+      b        = mkName "b"
+      subst    = Map.singleton b (VarT a)
+      origTy   = ForallT [plainTVSpecified a] [] (VarT b)
+      substTy  = applySubstitution subst origTy
+      wrongTy  = ForallT [plainTVSpecified a] [] (VarT a)
+  when (substTy == wrongTy) $
+    fail $ "applySubstitution captures during substitution"

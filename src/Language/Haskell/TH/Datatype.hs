@@ -126,7 +126,7 @@ module Language.Haskell.TH.Datatype
 
 import           Data.Data (Typeable, Data)
 import           Data.Foldable (foldMap, foldl')
-import           Data.List (nub, find, union, (\\))
+import           Data.List (mapAccumL, nub, find, union, (\\))
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Maybe
@@ -1073,9 +1073,12 @@ normalizeGadtC typename params instTys tyvars context names innerType
              subst    = VarT <$> substName
              exTyvars = [ tv | tv <- renamedTyvars, Map.notMember (tvName tv) subst ]
 
-             exTyvars' = substTyVarBndrs   subst exTyvars
-             context2  = applySubstitution subst (context1 ++ renamedContext)
-             fields'   = applySubstitution subst renamedFields
+             -- The use of substTyVarBndrKinds below will never capture, as the
+             -- range of the substitution will always use distinct names from
+             -- exTyvars due to the alpha-renaming pass above.
+             exTyvars' = substTyVarBndrKinds subst exTyvars
+             context2  = applySubstitution   subst (context1 ++ renamedContext)
+             fields'   = applySubstitution   subst renamedFields
          in sequence [ ConstructorInfo name exTyvars' context2
                                        fields' stricts <$> variantQ
                      | name <- names
@@ -1750,29 +1753,6 @@ freshenFreeVariables t =
 -- | Class for types that support type variable substitution.
 class TypeSubstitution a where
   -- | Apply a type variable substitution.
-  --
-  -- Note that 'applySubstitution' is /not/ capture-avoiding. To illustrate
-  -- this, observe that if you call this function with the following
-  -- substitution:
-  --
-  -- * @b :-> a@
-  --
-  -- On the following 'Type':
-  --
-  -- * @forall a. b@
-  --
-  -- Then it will return:
-  --
-  -- * @forall a. a@
-  --
-  -- However, because the same @a@ type variable was used in the range of the
-  -- substitution as was bound by the @forall@, the substituted @a@ is now
-  -- captured by the @forall@, resulting in a completely different function.
-  --
-  -- For @th-abstraction@'s purposes, this is acceptable, as it usually only
-  -- deals with globally unique type variable 'Name's. If you use
-  -- 'applySubstitution' in a context where the 'Name's aren't globally unique,
-  -- however, be aware of this potential problem.
   applySubstitution :: Map Name Type -> a -> a
   -- | Compute the free type variables
   freeVariables     :: a -> [Name]
@@ -1785,8 +1765,8 @@ instance TypeSubstitution Type where
   applySubstitution subst = go
     where
       go (ForallT tvs context t) =
-        subst_tvbs tvs $ \subst' ->
-        ForallT (map (mapTVKind (applySubstitution subst')) tvs)
+        let (subst', tvs') = substTyVarBndrs subst tvs in
+        ForallT tvs'
                 (applySubstitution subst' context)
                 (applySubstitution subst' t)
       go (AppT f x)      = AppT (go f) (go x)
@@ -1804,8 +1784,8 @@ instance TypeSubstitution Type where
 #endif
 #if MIN_VERSION_template_haskell(2,16,0)
       go (ForallVisT tvs t) =
-        subst_tvbs tvs $ \subst' ->
-        ForallVisT (map (mapTVKind (applySubstitution subst')) tvs)
+        let (subst', tvs') = substTyVarBndrs subst tvs in
+        ForallVisT tvs'
                    (applySubstitution subst' t)
 #endif
       go t               = t
@@ -1874,12 +1854,55 @@ instance TypeSubstitution Kind where
   applySubstitution _ k = k
 #endif
 
--- | Substitutes into the kinds of type variable binders.
--- Not capture-avoiding.
-substTyVarBndrs :: Map Name Type -> [TyVarBndr_ flag] -> [TyVarBndr_ flag]
-substTyVarBndrs subst = map go
+-- | Substitutes into the kinds of type variable binders. This makes an effort
+-- to avoid capturing the 'TyVarBndr' names during substitution by
+-- alpha-renaming names if absolutely necessary. For a version of this function
+-- which does /not/ avoid capture, see 'substTyVarBndrKinds'.
+substTyVarBndrs :: Map Name Type -> [TyVarBndr_ flag] -> (Map Name Type, [TyVarBndr_ flag])
+substTyVarBndrs = mapAccumL substTyVarBndr
+
+-- | The workhorse for 'substTyVarBndrs'.
+substTyVarBndr :: Map Name Type -> TyVarBndr_ flag -> (Map Name Type, TyVarBndr_ flag)
+substTyVarBndr subst tvb
+  | tvbName `Map.member` subst
+  = (Map.delete tvbName subst, mapTVKind (applySubstitution subst) tvb)
+  | tvbName `Set.notMember` substRangeFVs
+  = (subst, mapTVKind (applySubstitution subst) tvb)
+  | otherwise
+  = let tvbName' = evade tvbName in
+    ( Map.insert tvbName (VarT tvbName') subst
+    , mapTV (\_ -> tvbName') id (applySubstitution subst) tvb
+    )
   where
-    go = mapTVKind (applySubstitution subst)
+    tvbName :: Name
+    tvbName = tvName tvb
+
+    substRangeFVs :: Set Name
+    substRangeFVs = Set.fromList $ freeVariables $ Map.elems subst
+
+    evade :: Name -> Name
+    evade n | n `Set.member` substRangeFVs
+            = evade $ bump n
+            | otherwise
+            = n
+
+    -- An improvement would be to try a variety of different characters instead
+    -- of prepending the same character repeatedly. Let's wait to see if
+    -- someone complains about this before making this more complicated,
+    -- however.
+    bump :: Name -> Name
+    bump n = mkName $ 'f':nameBase n
+
+-- | Substitutes into the kinds of type variable binders. This is slightly more
+-- efficient than 'substTyVarBndrs', but at the expense of not avoiding
+-- capture. Only use this function in situations where you know that none of
+-- the 'TyVarBndr' names are contained in the range of the substitution.
+substTyVarBndrKinds :: Map Name Type -> [TyVarBndr_ flag] -> [TyVarBndr_ flag]
+substTyVarBndrKinds subst = map (substTyVarBndrKind subst)
+
+-- | The workhorse for 'substTyVarBndrKinds'.
+substTyVarBndrKind :: Map Name Type -> TyVarBndr_ flag -> TyVarBndr_ flag
+substTyVarBndrKind subst = mapTVKind (applySubstitution subst)
 
 ------------------------------------------------------------------------
 
