@@ -85,7 +85,7 @@ data family DF1 (a :: k)
 # else
 data family DF1 (a :: *)
 # endif
-data instance DF1 b = DF1 b
+data instance DF1 (b :: *) = DF1 b
 
 data family Quoted (a :: *)
 

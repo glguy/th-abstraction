@@ -3,6 +3,7 @@
 ## next -- ????.??.??
 * Fix a bug in which `resolveTypeSynonyms` would incorrectly expand type
   synonyms that are not applied to enough arguments.
+* Allow the test suite to build with GHC 9.2.
 
 ## 0.4.2.0 -- 2020-12-30
 * Explicitly mark modules as Safe (or Trustworthy for GHC versions prior to 8.4).
