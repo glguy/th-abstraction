@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## 0.4.3.0 -- ????.??.??
+## 0.4.3.0 -- 2021.08.30
 * Make `applySubstitution` avoid capturing type variable binders when
   substituting into `forall`s.
 * Fix a bug in which `resolveTypeSynonyms` would incorrectly expand type
