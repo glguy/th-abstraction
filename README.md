@@ -13,4 +13,4 @@ define these types.
 Contact Information
 -------------------
 
-Please contact me via GitHub or on the #haskell IRC channel on irc.freenode.net
+Please contact me via GitHub or on the #haskell IRC channel on irc.libera.chat
