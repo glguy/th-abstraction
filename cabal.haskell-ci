@@ -1,4 +1,3 @@
 distribution:           bionic
 no-tests-no-benchmarks: False
 unconstrained:          False
-ghcup-jobs:             >=8.10
