@@ -40,7 +40,7 @@ validate :: (a -> a -> Either String ()) -> a -> a -> ExpQ
 validate equate x y = either fail (\_ -> [| return () |]) (equate x y)
 
 -- | If the arguments are equal up to renaming return @'Right' ()@,
--- otherwise return a string exlaining the mismatch.
+-- otherwise return a string explaining the mismatch.
 equateDI :: DatatypeInfo -> DatatypeInfo -> Either String ()
 equateDI dat1 dat2 =
   do check "datatypeName"          (nameBase . datatypeName)    dat1 dat2
@@ -75,7 +75,7 @@ equateCxt lbl pred1 pred2 =
      check (lbl ++ " equality") asEqualPred pred1 pred2
 
 -- | If the arguments are equal up to renaming return @'Right' ()@,
--- otherwise return a string exlaining the mismatch.
+-- otherwise return a string explaining the mismatch.
 equateCI :: ConstructorInfo -> ConstructorInfo -> Either String ()
 equateCI con1 con2 =
   do check "constructorName"       (nameBase . constructorName) con1 con2
