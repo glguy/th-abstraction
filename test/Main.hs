@@ -92,7 +92,10 @@ main =
      t80Test
 #endif
 #if MIN_VERSION_template_haskell(2,11,0)
-     t79Test
+     t79TestA
+#endif
+#if MIN_VERSION_template_haskell(2,19,0)
+     t79TestB
 #endif
 #if __GLASGOW_HASKELL__ >= 800
      t37Test
@@ -829,6 +832,10 @@ t61Test =
        test (ParensT (idAppT $ ConT ''Int))
             (ConT ''Int)
 #endif
+#if MIN_VERSION_template_haskell(2,19,0)
+       test (PromotedInfixT (idAppT $ ConT ''Int) '(:^:) (idAppT $ ConT ''Int))
+            (PromotedInfixT (ConT ''Int) '(:^:) (ConT ''Int))
+#endif
        [| return () |])
 
 t66Test :: IO ()
@@ -880,12 +887,30 @@ t80Test = do
 #endif
 
 #if MIN_VERSION_template_haskell(2,11,0)
-t79Test :: IO ()
-t79Test =
+t79TestA :: IO ()
+t79TestA =
   $(do let [a,b,c]  = map mkName ["a","b","c"]
            t        = ForallT [kindedTVSpecified a (UInfixT (VarT b) ''(:+:) (VarT c))] []
                               (ConT ''())
            expected = ForallT [kindedTVSpecified a (ConT ''(:+:) `AppT` VarT b `AppT` VarT c)] []
+                              (ConT ''())
+       actual <- resolveInfixT t
+       unless (expected == actual) $
+         fail $ "resolveInfixT does not recur into the kinds of "
+             ++ "ForallT type variable binders: "
+             ++ unlines [ "Expected: " ++ pprint expected
+                        , "Actual:   " ++ pprint actual
+                        ]
+       [| return () |])
+#endif
+
+#if MIN_VERSION_template_haskell(2,19,0)
+t79TestB :: IO ()
+t79TestB =
+  $(do let [a,b,c]  = map mkName ["a","b","c"]
+           t        = ForallT [kindedTVSpecified a (PromotedUInfixT (VarT b) '(:^:) (VarT c))] []
+                              (ConT ''())
+           expected = ForallT [kindedTVSpecified a (PromotedT '(:^:) `AppT` VarT b `AppT` VarT c)] []
                               (ConT ''())
        actual <- resolveInfixT t
        unless (expected == actual) $

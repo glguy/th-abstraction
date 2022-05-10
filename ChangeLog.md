@@ -1,5 +1,10 @@
 # Revision history for th-abstraction
 
+## next -- ????.??.??
+* Support free variable substitution and infix resolution for
+  `PromotedInfixT` and `PromotedUInfixT` on `template-haskell-2.19.0.0` or
+  later.
+
 ## 0.4.3.0 -- 2021.08.30
 * Make `applySubstitution` avoid capturing type variable binders when
   substituting into `forall`s.
