@@ -71,6 +71,8 @@ data StrictDemo = StrictDemo Int !Int {-# UNPACK #-} !Int
 
 type (:+:) = Either
 
+data MyPair a b = a :^: b
+
 -- Data families
 data family T43Fam
 

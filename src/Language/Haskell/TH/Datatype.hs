@@ -1306,6 +1306,16 @@ resolveTypeSynonyms t =
          ForallVisT `fmap` mapM resolve_tvb_syns tvbs
                       `ap` resolveTypeSynonyms body
 #endif
+#if MIN_VERSION_template_haskell(2,19,0)
+       PromotedInfixT t1 n t2 -> do
+         t1' <- resolveTypeSynonyms t1
+         t2' <- resolveTypeSynonyms t2
+         return $ PromotedInfixT t1' n t2'
+       PromotedUInfixT t1 n t2 -> do
+         t1' <- resolveTypeSynonyms t1
+         t2' <- resolveTypeSynonyms t2
+         return $ PromotedUInfixT t1' n t2'
+#endif
        _ -> defaultCase f
 
 -- | Expand all of the type synonyms in a 'TypeArg'.
@@ -1493,28 +1503,40 @@ resolveInfixT (ImplicitParamT n t)
 resolveInfixT (ForallVisT vs t) = ForallVisT <$> traverse (traverseTVKind resolveInfixT) vs
                                              <*> resolveInfixT t
 # endif
+# if MIN_VERSION_template_haskell(2,19,0)
+resolveInfixT (PromotedInfixT l o r)
+                                = promotedT o `appT` resolveInfixT l `appT` resolveInfixT r
+resolveInfixT t@PromotedUInfixT{}
+                                = resolveInfixT =<< resolveInfixT1 (gatherUInfixT t)
+# endif
 resolveInfixT t                 = return t
 
 gatherUInfixT :: Type -> InfixList
-gatherUInfixT (UInfixT l o r) = ilAppend (gatherUInfixT l) o (gatherUInfixT r)
+gatherUInfixT (UInfixT l o r)         = ilAppend (gatherUInfixT l) o False (gatherUInfixT r)
+# if MIN_VERSION_template_haskell(2,19,0)
+gatherUInfixT (PromotedUInfixT l o r) = ilAppend (gatherUInfixT l) o True  (gatherUInfixT r)
+# endif
 gatherUInfixT t = ILNil t
 
 -- This can fail due to incompatible fixities
 resolveInfixT1 :: InfixList -> TypeQ
 resolveInfixT1 = go []
   where
-    go :: [(Type,Name,Fixity)] -> InfixList -> TypeQ
-    go ts (ILNil u) = return (foldl (\acc (l,o,_) -> ConT o `AppT` l `AppT` acc) u ts)
-    go ts (ILCons l o r) =
+    go :: [(Type,Name,Bool,Fixity)] -> InfixList -> TypeQ
+    go ts (ILNil u) = return (foldl (\acc (l,o,p,_) -> mkConT p o `AppT` l `AppT` acc) u ts)
+    go ts (ILCons l o p r) =
       do ofx <- fromMaybe defaultFixity <$> reifyFixityCompat o
-         let push = go ((l,o,ofx):ts) r
+         let push = go ((l,o,p,ofx):ts) r
          case ts of
-           (l1,o1,o1fx):ts' ->
+           (l1,o1,p1,o1fx):ts' ->
              case compareFixity o1fx ofx of
-               Just True  -> go ((ConT o1 `AppT` l1 `AppT` l, o, ofx):ts') r
+               Just True  -> go ((mkConT p1 o1 `AppT` l1 `AppT` l, o, p, ofx):ts') r
                Just False -> push
                Nothing    -> fail (precedenceError o1 o1fx o ofx)
            _ -> push
+
+    mkConT :: Bool -> Name -> Type
+    mkConT promoted = if promoted then PromotedT else ConT
 
     compareFixity :: Fixity -> Fixity -> Maybe Bool
     compareFixity (Fixity n1 InfixL) (Fixity n2 InfixL) = Just (n1 >= n2)
@@ -1532,11 +1554,17 @@ resolveInfixT1 = go []
       nameBase o2 ++ "’ [" ++ showFixity ofx2 ++
       "] in the same infix type expression"
 
-data InfixList = ILCons Type Name InfixList | ILNil Type
+data InfixList
+  = ILCons Type      -- The first argument to the type operator
+           Name      -- The name of the infix type operator
+           Bool      -- 'True' if this is a promoted infix data constructor,
+                     -- 'False' otherwise
+           InfixList -- The rest of the infix applications to resolve
+  | ILNil Type
 
-ilAppend :: InfixList -> Name -> InfixList -> InfixList
-ilAppend (ILNil l)         o r = ILCons l o r
-ilAppend (ILCons l1 o1 r1) o r = ILCons l1 o1 (ilAppend r1 o r)
+ilAppend :: InfixList -> Name -> Bool -> InfixList -> InfixList
+ilAppend (ILNil l)            o p r = ILCons l o p r
+ilAppend (ILCons l1 o1 p1 r1) o p r = ILCons l1 o1 p1 (ilAppend r1 o p r)
 
 #else
 -- older template-haskell packages don't have UInfixT
@@ -1788,6 +1816,12 @@ instance TypeSubstitution Type where
         ForallVisT tvs'
                    (applySubstitution subst' t)
 #endif
+#if MIN_VERSION_template_haskell(2,19,0)
+      go (PromotedInfixT l c r)
+                         = PromotedInfixT (go l) c (go r)
+      go (PromotedUInfixT l c r)
+                         = PromotedUInfixT (go l) c (go r)
+#endif
       go t               = t
 
       subst_tvbs :: [TyVarBndr_ flag] -> (Map Name Type -> a) -> a
@@ -1813,6 +1847,12 @@ instance TypeSubstitution Type where
 #if MIN_VERSION_template_haskell(2,16,0)
       ForallVisT tvs t'
                     -> fvs_under_forall tvs (freeVariables t')
+#endif
+#if MIN_VERSION_template_haskell(2,19,0)
+      PromotedInfixT l _ r
+                    -> freeVariables l `union` freeVariables r
+      PromotedUInfixT l _ r
+                    -> freeVariables l `union` freeVariables r
 #endif
       _             -> []
     where
