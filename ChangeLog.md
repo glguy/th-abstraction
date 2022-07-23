@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????.??.??
+## 0.4.4.0 -- 2022.07.23
 * Support free variable substitution and infix resolution for
   `PromotedInfixT` and `PromotedUInfixT` on `template-haskell-2.19.0.0` or
   later.
