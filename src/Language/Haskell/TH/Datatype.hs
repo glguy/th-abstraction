@@ -492,7 +492,7 @@ reifyParentWith prefix p n =
        TyConI dec -> normalizeDecFor isReified dec
 #if MIN_VERSION_template_haskell(2,7,0)
        FamilyI dec instances ->
-         do let instances1 = map (repairDataFam dec) instances
+         do instances1 <- mapM (repairDataFam dec) instances
             instances2 <- mapM (normalizeDecFor isReified) instances1
             case find p instances2 of
               Just inst -> return inst
@@ -524,8 +524,8 @@ sanitizeStars = go
 -- A version of repairVarKindsWith that does much more extra work to
 -- (1) eta-expand missing type patterns, and (2) ensure that the kind
 -- signatures for these new type patterns match accordingly.
-repairVarKindsWith' :: [TyVarBndr_ flag] -> [Type] -> [Type]
-repairVarKindsWith' dvars ts =
+repairVarKindsWith' :: [TyVarBndrUnit] -> Maybe Kind -> [Type] -> Q [Type]
+repairVarKindsWith' dvars dkind ts =
   let kindVars                = freeVariables . map kindPart
       kindPart (KindedTV _ k) = [k]
       kindPart (PlainTV  _  ) = []
@@ -536,8 +536,8 @@ repairVarKindsWith' dvars ts =
       tsKinds'            = map sanitizeStars tsKinds
       extraTys            = drop (length tsNoKinds) (bndrParams dvars)
       ts'                 = tsNoKinds ++ extraTys -- eta-expand
-  in applySubstitution (Map.fromList (zip kparams tsKinds')) $
-     repairVarKindsWith dvars ts'
+  in fmap (applySubstitution (Map.fromList (zip kparams tsKinds'))) $
+     repairVarKindsWith dvars dkind ts'
 
 
 -- Sadly, Template Haskell's treatment of data family instances leaves much
@@ -556,54 +556,77 @@ repairVarKindsWith' dvars ts =
 repairDataFam ::
   Dec {- ^ family declaration   -} ->
   Dec {- ^ instance declaration -} ->
-  Dec {- ^ instance declaration -}
+  Q Dec {- ^ instance declaration -}
 
 repairDataFam
-  (FamilyD _ _ dvars _)
-  (NewtypeInstD cx n ts con deriv) =
-    NewtypeInstD cx n (repairVarKindsWith' dvars ts) con deriv
+  (FamilyD _ _ dvars dk)
+  (NewtypeInstD cx n ts con deriv) = do
+    ts' <- repairVarKindsWith' dvars dk ts
+    return $ NewtypeInstD cx n ts' con deriv
 repairDataFam
-  (FamilyD _ _ dvars _)
-  (DataInstD cx n ts cons deriv) =
-    DataInstD cx n (repairVarKindsWith' dvars ts) cons deriv
+  (FamilyD _ _ dvars dk)
+  (DataInstD cx n ts cons deriv) = do
+    ts' <- repairVarKindsWith' dvars dk ts
+    return $ DataInstD cx n ts' cons deriv
 #else
 repairDataFam famD instD
 # if MIN_VERSION_template_haskell(2,15,0)
-      | DataFamilyD _ dvars _ <- famD
+      | DataFamilyD _ dvars dk <- famD
       , NewtypeInstD cx mbInstVars nts k c deriv <- instD
       , con :| ts <- decomposeType nts
-      = NewtypeInstD cx mbInstVars
-          (foldl' AppT con (repairVarKindsWith dvars ts))
-          k c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ NewtypeInstD cx mbInstVars (foldl' AppT con ts') k c deriv
 
-      | DataFamilyD _ dvars _ <- famD
+      | DataFamilyD _ dvars dk <- famD
       , DataInstD cx mbInstVars nts k c deriv <- instD
       , con :| ts <- decomposeType nts
-      = DataInstD cx mbInstVars
-          (foldl' AppT con (repairVarKindsWith dvars ts))
-          k c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ DataInstD cx mbInstVars (foldl' AppT con ts') k c deriv
 # elif MIN_VERSION_template_haskell(2,11,0)
-      | DataFamilyD _ dvars _ <- famD
+      | DataFamilyD _ dvars dk <- famD
       , NewtypeInstD cx n ts k c deriv <- instD
-      = NewtypeInstD cx n (repairVarKindsWith dvars ts) k c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ NewtypeInstD cx n ts' k c deriv
 
-      | DataFamilyD _ dvars _ <- famD
+      | DataFamilyD _ dvars dk <- famD
       , DataInstD cx n ts k c deriv <- instD
-      = DataInstD cx n (repairVarKindsWith dvars ts) k c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ DataInstD cx n ts' k c deriv
 # else
-      | FamilyD _ _ dvars _ <- famD
+      | FamilyD _ _ dvars dk <- famD
       , NewtypeInstD cx n ts c deriv <- instD
-      = NewtypeInstD cx n (repairVarKindsWith dvars ts) c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ NewtypeInstD cx n ts' c deriv
 
-      | FamilyD _ _ dvars _ <- famD
+      | FamilyD _ _ dvars dk <- famD
       , DataInstD cx n ts c deriv <- instD
-      = DataInstD cx n (repairVarKindsWith dvars ts) c deriv
+      = do ts' <- repairVarKindsWith dvars dk ts
+           return $ DataInstD cx n ts' c deriv
 # endif
 #endif
-repairDataFam _ instD = instD
+repairDataFam _ instD = return instD
 
-repairVarKindsWith :: [TyVarBndr_ flag] -> [Type] -> [Type]
-repairVarKindsWith = zipWith stealKindForType
+-- | @'repairVarKindsWith' tvbs mbKind ts@ returns @ts@, but where each element
+-- has an explicit kind signature taken from a 'TyVarBndr' in the corresponding
+-- position in @tvbs@, or from the corresponding kind argument in 'mbKind' if
+-- there aren't enough 'TyVarBndr's available. An example where @tvbs@ can be
+-- shorter than @ts@ can be found in this example from #95:
+--
+-- @
+-- data family F :: Type -> Type
+-- data instance F a = C
+-- @
+--
+-- The @F@ has no type variable binders in its @data family@ declaration, and
+-- it has a return kind of @Type -> Type@. As a result, we pair up @Type@ with
+-- @VarT a@ to get @SigT a (ConT ''Type)@.
+repairVarKindsWith :: [TyVarBndrUnit] -> Maybe Kind -> [Type] -> Q [Type]
+repairVarKindsWith tvbs mbKind ts = do
+  extra_tvbs <- mkExtraKindBinders $ fromMaybe starK mbKind
+  -- This list should be the same length as @ts@. If it isn't, something has
+  -- gone terribly wrong.
+  let tvbs' = tvbs ++ extra_tvbs
+  return $ zipWith stealKindForType tvbs' ts
 
 -- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
 stealKindForType :: TyVarBndr_ flag -> Type -> Type

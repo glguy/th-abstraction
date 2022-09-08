@@ -74,6 +74,7 @@ main =
      recordFamTest
      t46Test
      t73Test
+     t95Test
 #endif
      fixityLookupTest
 #if __GLASGOW_HASKELL__ >= 704
@@ -678,6 +679,30 @@ t73Test =
                    , constructorVars       = []
                    , constructorContext    = []
                    , constructorFields     = [bVar]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor }]
+           }
+   )
+
+t95Test :: IO ()
+t95Test =
+  $(do info <- reifyDatatype 'MkT95
+       let a    = mkName "a"
+           aTvb = kindedTV a starK
+           aVar = VarT a
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = ''T95
+           , datatypeContext   = []
+           , datatypeVars      = [aTvb]
+           , datatypeInstTypes = [AppT ListT aVar]
+           , datatypeVariant   = DataInstance
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = 'MkT95
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [aVar]
                    , constructorStrictness = [notStrictAnnot]
                    , constructorVariant    = NormalConstructor }]
            }
