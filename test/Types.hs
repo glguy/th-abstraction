@@ -116,6 +116,9 @@ data instance T46 (f (p :: *)) (f p) q = MkT46 q
 
 data family   T73 a   b
 data instance T73 Int b = MkT73 b
+
+data family T95 :: * -> *
+data instance T95 [a] = MkT95 a
 #endif
 
 #if __GLASGOW_HASKELL__ >= 704

@@ -1,5 +1,10 @@
 # Revision history for th-abstraction
 
+## next -- ????.??.??
+* Fix a bug in which data family declarations with interesting return kinds
+  (e.g., `data family F :: Type -> Type`) would be reified incorrectly when
+  using `reifyDatatype`.
+
 ## 0.4.4.0 -- 2022.07.23
 * Support free variable substitution and infix resolution for
   `PromotedInfixT` and `PromotedUInfixT` on `template-haskell-2.19.0.0` or
