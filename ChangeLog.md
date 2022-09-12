@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????.??.??
+## 0.4.5.0 -- 2022.09.12
 * Fix a bug in which data family declarations with interesting return kinds
   (e.g., `data family F :: Type -> Type`) would be reified incorrectly when
   using `reifyDatatype`.
