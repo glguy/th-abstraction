@@ -1,5 +1,9 @@
 # Revision history for th-abstraction
 
+## next -- ????.??.??
+* Add a `Lift` instance for `th-abstraction`'s compatibility shim for
+  `Specificity` when building with pre-9.0 versions of GHC.
+
 ## 0.4.5.0 -- 2022.09.12
 * Fix a bug in which data family declarations with interesting return kinds
   (e.g., `data family F :: Type -> Type`) would be reified incorrectly when
