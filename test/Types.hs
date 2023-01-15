@@ -9,7 +9,10 @@
 #endif
 
 #if __GLASGOW_HASKELL__ >= 800
+{-# Language DataKinds #-}
+# if __GLASGOW_HASKELL__ < 806
 {-# Language TypeInType #-}
+# endif
 #endif
 
 {-|
