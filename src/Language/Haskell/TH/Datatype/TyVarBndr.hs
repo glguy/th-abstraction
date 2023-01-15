@@ -11,6 +11,11 @@
 {-# Language Trustworthy #-}
 #endif
 
+#if __GLASGOW_HASKELL__ >= 800
+#define HAS_TH_LIFT
+{-# Language DeriveLift #-}
+#endif
+
 {-|
 Module      : Language.Haskell.TH.Datatype.TyVarBndr
 Description : Backwards-compatible type variable binders
@@ -102,6 +107,9 @@ data Specificity
   deriving (Show, Eq, Ord, Typeable, Data
 #ifdef HAS_GENERICS
            ,Generic
+#endif
+#ifdef HAS_TH_LIFT
+           ,Lift
 #endif
            )
 
