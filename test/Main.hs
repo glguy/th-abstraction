@@ -39,7 +39,7 @@ import           Data.Type.Equality ((:~:)(..))
 #endif
 
 import           Language.Haskell.TH
-import           Language.Haskell.TH.Datatype
+import           Language.Haskell.TH.Datatype as Datatype
 import           Language.Haskell.TH.Datatype.TyVarBndr
 import           Language.Haskell.TH.Lib (starK)
 
@@ -110,6 +110,9 @@ main =
      t70Test
      t88Test
      captureAvoidanceTest
+#if MIN_VERSION_template_haskell(2,20,0)
+     t100Test
+#endif
 
 adt1Test :: IO ()
 adt1Test =
@@ -1147,3 +1150,32 @@ captureAvoidanceTest = do
       wrongTy  = ForallT [plainTVSpecified a] [] (VarT a)
   when (substTy == wrongTy) $
     fail $ "applySubstitution captures during substitution"
+
+#if MIN_VERSION_template_haskell(2,20,0)
+t100Test :: IO ()
+t100Test =
+  $(do let expectedInfo =
+             DatatypeInfo
+               { datatypeName = ''T100
+               , datatypeContext = []
+               , datatypeVars = []
+               , datatypeInstTypes = []
+               , datatypeVariant = Datatype.TypeData
+               , datatypeCons =
+                   [ ConstructorInfo
+                       { constructorName = ''MkT100
+                       , constructorContext = []
+                       , constructorVars = []
+                       , constructorFields = []
+                       , constructorStrictness = []
+                       , constructorVariant = NormalConstructor }
+                   ]
+               }
+
+       t100Info <- reifyDatatype ''T100
+       validateDI t100Info expectedInfo
+
+       mkT100Info <- reifyDatatype ''MkT100
+       validateDI mkT100Info expectedInfo
+   )
+#endif

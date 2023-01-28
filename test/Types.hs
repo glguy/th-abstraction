@@ -15,6 +15,10 @@
 # endif
 #endif
 
+#if MIN_VERSION_template_haskell(2,20,0)
+{-# Language TypeData #-}
+#endif
+
 {-|
 Module      : Types
 Description : Test cases for the th-abstraction package
@@ -153,6 +157,10 @@ data T48 :: Type -> Type where
 
 data T75 (k :: Type) where
   MkT75 :: forall k (a :: k). Prox a -> T75 k
+#endif
+
+#if MIN_VERSION_template_haskell(2,20,0)
+type data T100 = MkT100
 #endif
 
 -- We must define these here due to Template Haskell staging restrictions

@@ -207,10 +207,31 @@ data DatatypeInfo = DatatypeInfo
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
-  = Datatype        -- ^ Type declared with @data@
-  | Newtype         -- ^ Type declared with @newtype@
-  | DataInstance    -- ^ Type declared with @data instance@
-  | NewtypeInstance -- ^ Type declared with @newtype instance@
+  = Datatype        -- ^ Type declared with @data@.
+  | Newtype         -- ^ Type declared with @newtype@.
+                    --
+                    --   A 'DatatypeInfo' that uses 'Newtype' will uphold the
+                    --   invariant that there will be exactly one
+                    --   'ConstructorInfo' in the 'datatypeCons'.
+  | DataInstance    -- ^ Type declared with @data instance@.
+  | NewtypeInstance -- ^ Type declared with @newtype instance@.
+                    --
+                    --   A 'DatatypeInfo' that uses 'NewtypeInstance' will
+                    --   uphold the invariant that there will be exactly one
+                    --   'ConstructorInfo' in the 'datatypeCons'.
+  | TypeData        -- ^ Type declared with @type data@.
+                    --
+                    --   A 'DatatypeInfo' that uses 'TypeData' will uphold the
+                    --   following invariants:
+                    --
+                    --   * The 'datatypeContext' will be empty.
+                    --
+                    --   * None of the 'constructorVariant's in any of the
+                    --     'datatypeCons' will be 'RecordConstructor'.
+                    --
+                    --   * Each of the 'constructorStrictness' values in each
+                    --     of the 'datatypeCons' will be equal to
+                    --     'notStrictAnnot'.
   deriving (Show, Read, Eq, Ord, Typeable, Data
 #ifdef HAS_GENERICS
            ,Generic
@@ -656,6 +677,10 @@ normalizeDec = normalizeDecFor isn'tReified
 normalizeDecFor :: IsReifiedDec -> Dec -> Q DatatypeInfo
 normalizeDecFor isReified dec =
   case dec of
+#if MIN_VERSION_template_haskell(2,20,0)
+    TypeDataD name tyvars mbKind cons ->
+      normalizeDataD [] name tyvars mbKind cons TypeData
+#endif
 #if MIN_VERSION_template_haskell(2,12,0)
     NewtypeD context name tyvars mbKind con _derives ->
       normalizeDataD context name tyvars mbKind [con] Newtype
@@ -778,6 +803,7 @@ isFamInstVariant dv =
     Newtype         -> False
     DataInstance    -> True
     NewtypeInstance -> True
+    TypeData        -> False
 
 bndrParams :: [TyVarBndr_ flag] -> [Type]
 bndrParams = map $ elimTV VarT (\n k -> SigT (VarT n) k)
