@@ -13,6 +13,10 @@
 {-# Language PolyKinds #-}
 #endif
 
+#if MIN_VERSION_template_haskell(2,21,0)
+{-# Language TypeAbstractions #-}
+#endif
+
 {-|
 Module      : Main
 Description : Test cases for the th-abstraction package
@@ -112,6 +116,9 @@ main =
      captureAvoidanceTest
 #if MIN_VERSION_template_haskell(2,20,0)
      t100Test
+#endif
+#if MIN_VERSION_template_haskell(2,21,0)
+     t103Test
 #endif
 
 adt1Test :: IO ()
@@ -1177,5 +1184,24 @@ t100Test =
 
        mkT100Info <- reifyDatatype ''MkT100
        validateDI mkT100Info expectedInfo
+   )
+#endif
+
+#if MIN_VERSION_template_haskell(2,21,0)
+t103Test :: IO ()
+t103Test =
+  $(do [dec] <- [d| data T102 @k (a :: k) |]
+       info <- normalizeDec dec
+       let k = mkName "k"
+           a = mkName "a"
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "T102"
+           , datatypeContext   = []
+           , datatypeVars      = [plainTV k, kindedTV a (VarT k)]
+           , datatypeInstTypes = [SigT (VarT a) (VarT k)]
+           , datatypeVariant   = Datatype
+           , datatypeCons      = []
+           }
    )
 #endif

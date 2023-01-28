@@ -173,6 +173,11 @@ import           Data.Monoid (Monoid(..))
 --   @'datatypeInstTypes' = ['SigT' ('VarT' a) ('VarT' k)]@, since there is
 --   only one explicit type argument to @Proxy@.
 --
+--   The same outcome would occur if @Proxy@ were declared using
+--   @TypeAbstractions@, i.e., if it were declared as
+--   @data Proxy \@k (a :: k) = MkProxy@. The 'datatypeInstTypes' would /not/
+--   include a separate type for @\@k@.
+--
 -- * For @data instance@s and @newtype instance@s of data families,
 --   'datatypeVars' and 'datatypeInstTypes' can be quite different. Here is
 --   an example to illustrate the difference:
@@ -641,12 +646,12 @@ repairDataFam _ instD = return instD
 -- The @F@ has no type variable binders in its @data family@ declaration, and
 -- it has a return kind of @Type -> Type@. As a result, we pair up @Type@ with
 -- @VarT a@ to get @SigT a (ConT ''Type)@.
-repairVarKindsWith :: [TyVarBndrUnit] -> Maybe Kind -> [Type] -> Q [Type]
+repairVarKindsWith :: [TyVarBndrVis] -> Maybe Kind -> [Type] -> Q [Type]
 repairVarKindsWith tvbs mbKind ts = do
   extra_tvbs <- mkExtraKindBinders $ fromMaybe starK mbKind
   -- This list should be the same length as @ts@. If it isn't, something has
   -- gone terribly wrong.
-  let tvbs' = tvbs ++ extra_tvbs
+  let tvbs' = changeTVFlags () tvbs ++ extra_tvbs
   return $ zipWith stealKindForType tvbs' ts
 
 -- If a VarT is missing an explicit kind signature, steal it from a TyVarBndr.
@@ -738,12 +743,19 @@ normalizeDecFor isReified dec =
                                            [] -- No kind variables
 #endif
 
-    normalizeDataD :: Cxt -> Name -> [TyVarBndrUnit] -> Maybe Kind
+    normalizeDataD :: Cxt -> Name -> [TyVarBndrVis] -> Maybe Kind
                    -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalizeDataD context name tyvars mbKind cons variant =
-      let params = bndrParams tyvars in
-      normalize' context name (datatypeFreeVars params mbKind)
-                 params mbKind cons variant
+      -- NB: use `filter isRequiredTvb tyvars` here. It is possible for some of
+      -- the `tyvars` to be `BndrInvis` if the data type is quoted, e.g.,
+      --
+      --   data D @k (a :: k)
+      --
+      -- th-abstraction adopts the convention that all binders in the
+      -- 'datatypeInstTypes' are required, so we want to filter out the `@k`.
+      let tys = bndrParams $ filter isRequiredTvb tyvars in
+      normalize' context name (datatypeFreeVars (bndrParams tyvars) mbKind)
+                 tys mbKind cons variant
 
     normalizeDataInstDPostTH2'15
       :: String -> Cxt -> Maybe [TyVarBndrUnit] -> Type -> Maybe Kind
@@ -807,6 +819,14 @@ isFamInstVariant dv =
 
 bndrParams :: [TyVarBndr_ flag] -> [Type]
 bndrParams = map $ elimTV VarT (\n k -> SigT (VarT n) k)
+
+-- | Returns 'True' if the flag of the supplied 'TyVarBndrVis' is 'BndrReq'.
+isRequiredTvb :: TyVarBndrVis -> Bool
+#if __GLASGOW_HASKELL__ >= 708
+isRequiredTvb tvb = tvFlag tvb == BndrReq
+#else
+isRequiredTvb _ = True
+#endif
 
 -- | Remove the outermost 'SigT'.
 stripSigT :: Type -> Type
@@ -2170,11 +2190,11 @@ repair13618 info =
 
 -- | Backward compatible version of 'dataD'
 dataDCompat ::
-  CxtQ            {- ^ context                 -} ->
-  Name            {- ^ type constructor        -} ->
-  [TyVarBndrUnit] {- ^ type parameters         -} ->
-  [ConQ]          {- ^ constructor definitions -} ->
-  [Name]          {- ^ derived class names     -} ->
+  CxtQ           {- ^ context                 -} ->
+  Name           {- ^ type constructor        -} ->
+  [TyVarBndrVis] {- ^ type parameters         -} ->
+  [ConQ]         {- ^ constructor definitions -} ->
+  [Name]         {- ^ derived class names     -} ->
   DecQ
 #if MIN_VERSION_template_haskell(2,12,0)
 dataDCompat c n ts cs ds =
@@ -2190,11 +2210,11 @@ dataDCompat = dataD
 
 -- | Backward compatible version of 'newtypeD'
 newtypeDCompat ::
-  CxtQ            {- ^ context                 -} ->
-  Name            {- ^ type constructor        -} ->
-  [TyVarBndrUnit] {- ^ type parameters         -} ->
-  ConQ            {- ^ constructor definition  -} ->
-  [Name]          {- ^ derived class names     -} ->
+  CxtQ           {- ^ context                 -} ->
+  Name           {- ^ type constructor        -} ->
+  [TyVarBndrVis] {- ^ type parameters         -} ->
+  ConQ           {- ^ constructor definition  -} ->
+  [Name]         {- ^ derived class names     -} ->
   DecQ
 #if MIN_VERSION_template_haskell(2,12,0)
 newtypeDCompat c n ts cs ds =

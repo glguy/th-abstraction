@@ -11,6 +11,11 @@
 {-# Language Trustworthy #-}
 #endif
 
+#if __GLASGOW_HASKELL__ >= 708
+{-# Language PatternSynonyms #-}
+{-# Language ViewPatterns #-}
+#endif
+
 #if __GLASGOW_HASKELL__ >= 800
 #define HAS_TH_LIFT
 {-# Language DeriveLift #-}
@@ -33,7 +38,18 @@ module Language.Haskell.TH.Datatype.TyVarBndr (
     TyVarBndr_
   , TyVarBndrUnit
   , TyVarBndrSpec
+  , TyVarBndrVis
   , Specificity(..)
+#if __GLASGOW_HASKELL__ >= 907
+  , BndrVis(..)
+#elif __GLASGOW_HASKELL__ >= 708
+  , BndrVis
+  , pattern BndrReq
+  , pattern BndrInvis
+#else
+  , BndrVis
+#endif
+  , DefaultBndrFlag(..)
 
     -- * Constructing @TyVarBndr@s
     -- ** @flag@-polymorphic
@@ -47,13 +63,23 @@ module Language.Haskell.TH.Datatype.TyVarBndr (
   , plainTVSpecified
   , kindedTVInferred
   , kindedTVSpecified
+    -- ** @TyVarBndrVis@
+  , plainTVReq
+  , plainTVInvis
+  , kindedTVReq
+  , kindedTVInvis
 
     -- * Constructing @Specificity@
   , inferredSpec
   , specifiedSpec
 
+    -- * Constructing @BndrVis@
+  , bndrReq
+  , bndrInvis
+
     -- * Modifying @TyVarBndr@s
   , elimTV
+  , elimTVFlag
   , mapTV
   , mapTVName
   , mapTVFlag
@@ -71,6 +97,7 @@ module Language.Haskell.TH.Datatype.TyVarBndr (
     -- * Properties of @TyVarBndr@s
   , tvName
   , tvKind
+  , tvFlag
   ) where
 
 import Control.Applicative
@@ -86,18 +113,19 @@ import GHC.Generics (Generic)
 -- | A type synonym for 'TyVarBndr'. This is the recommended way to refer to
 -- 'TyVarBndr's if you wish to achieve backwards compatibility with older
 -- versions of @template-haskell@, where 'TyVarBndr' lacked a @flag@ type
--- parameter representing its specificity (if it has one).
+-- parameter (if it has one).
 #if MIN_VERSION_template_haskell(2,17,0)
 type TyVarBndr_ flag = TyVarBndr flag
 #else
 type TyVarBndr_ flag = TyVarBndr
 
--- | A 'TyVarBndr' where the specificity is irrelevant. This is used for
--- 'TyVarBndr's that do not interact with visible type application.
+-- | A 'TyVarBndr' without a flag. This is used for 'TyVarBndr's that do not
+-- interact with visible type application and are not binders for type-level
+-- declarations.
 type TyVarBndrUnit = TyVarBndr
 
--- | A 'TyVarBndr' with an explicit 'Specificity'. This is used for
--- 'TyVarBndr's that interact with visible type application.
+-- | A 'TyVarBndr' with a 'Specificity' flag. This is used for 'TyVarBndr's that
+-- interact with visible type application.
 type TyVarBndrSpec = TyVarBndr
 
 -- | Determines how a 'TyVarBndr' interacts with visible type application.
@@ -120,6 +148,81 @@ specifiedSpec :: Specificity
 specifiedSpec = SpecifiedSpec
 #endif
 
+#if !MIN_VERSION_template_haskell(2,21,0)
+-- | A 'TyVarBndr' with a 'BndrVis' flag. This is used for 'TyVarBndr's in
+-- type-level declarations (e.g., the binders in @data D \@k (a :: k)@).
+type TyVarBndrVis = TyVarBndr_ BndrVis
+
+-- | Because pre-9.8 GHCs do not support invisible binders in type-level
+-- declarations, we simply make 'BndrVis' an alias for @()@ as a compatibility
+-- shim for old GHCs. This matches how type-level 'TyVarBndr's were flagged
+-- prior to GHC 9.8.
+type BndrVis = ()
+#if __GLASGOW_HASKELL__ >= 802
+{-# COMPLETE BndrReq, BndrInvis #-}
+#endif
+
+#if __GLASGOW_HASKELL__ >= 708
+-- | Because pre-9.8 GHCs do not support invisible binders in type-level
+-- declarations, we simply make 'BndrReq' a pattern synonym for @()@ as a
+-- compatibility shim for old GHCs. This matches how type-level 'TyVarBndr's
+-- were flagged prior to GHC 9.8.
+#if __GLASGOW_HASKELL__ >= 800
+pattern BndrReq :: BndrVis
+#endif
+pattern BndrReq = ()
+
+-- | Because pre-9.8 GHCs do not support invisible binders in type-level
+-- declarations, this compatibility shim is defined in a somewhat unusual way:
+--
+-- * As a pattern, 'BndrInvis' will never match on pre-9.8 GHCs. That way, if
+--   you write pattern matches like this:
+--
+--   @
+--   case flag of
+--     'BndrInvis' -> ...
+--     'BndrVis' -> ...
+--   @
+--
+--   Then the first branch will never be taken on pre-9.8 GHCs.
+--
+-- * 'BndrInvis' is a unidirectional pattern synonym on pre-9.8 GHCs, so it
+--   cannot be used as an expression on these GHC versions. This is done in an
+--   effort to avoid pitfalls that could occur if 'BndrInvis' were defined like
+--   so:
+--
+--   @
+--   pattern 'BndrInvis' = ()
+--   @
+--
+--   If this were the definition, then a user could write code involving
+--   'BndrInvis' that would construct an invisible type-level binder on GHC 9.8
+--   or later, but a /visible/ type-level binder on older GHCs! This would be
+--   disastrous, so we prevent the user from doing such a thing.
+#if __GLASGOW_HASKELL__ >= 800
+pattern BndrInvis :: BndrVis
+#endif
+pattern BndrInvis <- ((\() -> True) -> False)
+#endif
+
+bndrReq :: BndrVis
+bndrReq = ()
+
+bndrInvis :: BndrVis
+bndrInvis = ()
+
+-- | A class characterizing reasonable default values for various 'TyVarBndr'
+-- @flag@ types.
+class DefaultBndrFlag flag where
+  defaultBndrFlag :: flag
+
+instance DefaultBndrFlag () where
+  defaultBndrFlag = ()
+
+instance DefaultBndrFlag Specificity where
+  defaultBndrFlag = SpecifiedSpec
+#endif
+
 -- | Construct a 'PlainTV' with the given @flag@.
 plainTVFlag :: Name -> flag -> TyVarBndr_ flag
 #if MIN_VERSION_template_haskell(2,17,0)
@@ -135,6 +238,14 @@ plainTVInferred n = plainTVFlag n InferredSpec
 -- | Construct a 'PlainTV' with a 'SpecifiedSpec'.
 plainTVSpecified :: Name -> TyVarBndrSpec
 plainTVSpecified n = plainTVFlag n SpecifiedSpec
+
+-- | Construct a 'PlainTV' with a 'BndrReq'.
+plainTVReq :: Name -> TyVarBndrVis
+plainTVReq n = plainTVFlag n bndrReq
+
+-- | Construct a 'PlainTV' with a 'BndrInvis'.
+plainTVInvis :: Name -> TyVarBndrVis
+plainTVInvis n = plainTVFlag n bndrInvis
 
 -- | Construct a 'KindedTV' with the given @flag@.
 kindedTVFlag :: Name -> flag -> Kind -> TyVarBndr_ flag
@@ -152,6 +263,14 @@ kindedTVInferred n k = kindedTVFlag n InferredSpec k
 kindedTVSpecified :: Name -> Kind -> TyVarBndrSpec
 kindedTVSpecified n k = kindedTVFlag n SpecifiedSpec k
 
+-- | Construct a 'KindedTV' with a 'BndrReq'.
+kindedTVReq :: Name -> Kind -> TyVarBndrVis
+kindedTVReq n k = kindedTVFlag n bndrReq k
+
+-- | Construct a 'KindedTV' with a 'BndrInvis'.
+kindedTVInvis :: Name -> Kind -> TyVarBndrVis
+kindedTVInvis n k = kindedTVFlag n bndrInvis k
+
 -- | Case analysis for a 'TyVarBndr'. If the value is a @'PlainTV' n _@, apply
 -- the first function to @n@; if it is @'KindedTV' n _ k@, apply the second
 -- function to @n@ and @k@.
@@ -162,6 +281,20 @@ elimTV _ptv ktv (KindedTV n _ k) = ktv n k
 #else
 elimTV ptv _ktv (PlainTV n)    = ptv n
 elimTV _ptv ktv (KindedTV n k) = ktv n k
+#endif
+
+-- | Case analysis for a 'TyVarBndr' that includes @flag@s in the continuation
+-- arguments. Note that 'TyVarBndr's did not include @flag@s prior to
+-- @template-haskell-2.17.0.0@, so on older versions of @template-haskell@,
+-- these @flag@s instead become @()@.
+#if MIN_VERSION_template_haskell(2,17,0)
+elimTVFlag :: (Name -> flag -> r) -> (Name -> flag -> Kind -> r) -> TyVarBndr_ flag -> r
+elimTVFlag ptv _ktv (PlainTV n flag)    = ptv n flag
+elimTVFlag _ptv ktv (KindedTV n flag k) = ktv n flag k
+#else
+elimTVFlag :: (Name -> () -> r) -> (Name -> () -> Kind -> r) -> TyVarBndr_ flag -> r
+elimTVFlag ptv _ktv (PlainTV n)    = ptv n ()
+elimTVFlag _ptv ktv (KindedTV n k) = ktv n () k
 #endif
 
 -- | Map over the components of a 'TyVarBndr'.
@@ -354,3 +487,14 @@ tvName = elimTV id (\n _ -> n)
 -- | Extract the kind from a 'TyVarBndr'. Assumes 'PlainTV' has kind @*@.
 tvKind :: TyVarBndr_ flag -> Kind
 tvKind = elimTV (\_ -> starK) (\_ k -> k)
+
+-- | Extract the @flag@ from a 'TyVarBndr'. Note that 'TyVarBndr's did not
+-- include @flag@s prior to @template-haskell-2.17.0.0@, so on older versions of
+-- @template-haskell@, this functions instead returns @()@.
+#if MIN_VERSION_template_haskell(2,17,0)
+tvFlag :: TyVarBndr_ flag -> flag
+tvFlag = elimTVFlag (\_ flag -> flag) (\_ flag _ -> flag)
+#else
+tvFlag :: TyVarBndr_ flag -> ()
+tvFlag _ = ()
+#endif
