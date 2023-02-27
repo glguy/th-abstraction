@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## 0.5.0.0 -- ????.??.??
+## 0.5.0.0 -- 2023.02.27
 * Support the `TypeData` language extension added in GHC 9.6. The
   `DatatypeVariant` data type now has a separate `TypeData` constructor to
   represent `type data` declarations.
