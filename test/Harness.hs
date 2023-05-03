@@ -47,10 +47,14 @@ equateDI dat1 dat2 =
      check "datatypeVars len"      (length . datatypeVars)      dat1 dat2
      check "datatypeInstTypes len" (length . datatypeInstTypes) dat1 dat2
      check "datatypeVariant"       datatypeVariant              dat1 dat2
-     check "datatypeCons len"      (length . datatypeCons)      dat1 dat2
-
      let sub = Map.fromList (zip (freeVariables (bndrParams (datatypeVars dat2)))
                                  (map VarT (freeVariables (bndrParams (datatypeVars dat1)))))
+     check "datatypeReturnKind"
+           id
+           (datatypeReturnKind dat1)
+           (applySubstitution sub $ datatypeReturnKind dat2)
+     check "datatypeCons len"      (length . datatypeCons)      dat1 dat2
+
 
      check "datatypeVars" id
        (datatypeVars dat1)

@@ -31,6 +31,7 @@ Sample output for @'reifyDatatype' ''Maybe@
  , 'datatypeVars'      = [ 'KindedTV' a_3530822107858468866 () 'StarT' ]
  , 'datatypeInstTypes' = [ 'SigT' ('VarT' a_3530822107858468866) 'StarT' ]
  , 'datatypeVariant'   = 'Datatype'
+ , 'datatypeReturnKind' = 'StarT'
  , 'datatypeCons'      =
      [ 'ConstructorInfo'
          { 'constructorName'       = GHC.Base.Nothing
@@ -202,6 +203,10 @@ data DatatypeInfo = DatatypeInfo
   , datatypeVars      :: [TyVarBndrUnit]   -- ^ Type parameters
   , datatypeInstTypes :: [Type]            -- ^ Argument types
   , datatypeVariant   :: DatatypeVariant   -- ^ Extra information
+  , datatypeReturnKind:: Kind              -- ^ Return 'Kind' of the type.
+                                           --
+                                           -- If normalization is unable to determine the return kind,
+                                           -- then this is conservatively set to @StarT@.
   , datatypeCons      :: [ConstructorInfo] -- ^ Normalize constructor information
   }
   deriving (Show, Eq, Typeable, Data
@@ -1062,6 +1067,7 @@ normalizeDec' reifiedDec context name params instTys resKind cons variant =
        , datatypeVars      = params
        , datatypeInstTypes = instTys
        , datatypeCons      = cons'
+       , datatypeReturnKind = resKind
        , datatypeVariant   = variant
        }
 
