@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## 0.6.0.0 -- ????.??.??
+## 0.6.0.0 -- 2023.07.31
 * Support building with `template-haskell-2.21.0.0` (GHC 9.8).
 * Adapt to `TyVarBndr`s for type-level declarations changing their type from
   `TyVarBndr ()` to `TyVarBndr BndrVis` in `template-haskell`:
