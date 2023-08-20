@@ -1,4 +1,4 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, RankNTypes #-}
 
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE ConstraintKinds #-}
@@ -119,6 +119,9 @@ main =
 #endif
 #if MIN_VERSION_template_haskell(2,21,0)
      t103Test
+#endif
+#if __GLASGOW_HASKELL__ >= 810
+     t108Test
 #endif
 
 adt1Test :: IO ()
@@ -1202,6 +1205,36 @@ t103Test =
            , datatypeInstTypes = [SigT (VarT a) (VarT k)]
            , datatypeVariant   = Datatype
            , datatypeCons      = []
+           }
+   )
+#endif
+
+#if __GLASGOW_HASKELL__ >= 810
+t108Test :: IO ()
+t108Test =
+  $(do [dec] <- [d| data T108 :: forall k -> k -> Type where
+                      MkT108 :: forall k (a :: k). T108 k a
+                  |]
+       info <- normalizeDec dec
+       let k = mkName "k"
+           a = mkName "a"
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "T108"
+           , datatypeContext   = []
+           , datatypeVars      = [plainTV k, kindedTV a (VarT k)]
+           , datatypeInstTypes = [VarT k, SigT (VarT a) (VarT k)]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkT108"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor
+                   }
+               ]
            }
    )
 #endif

@@ -803,9 +803,15 @@ normalizeDecFor isReified dec =
 mkExtraKindBinders :: Kind -> Q [TyVarBndrUnit]
 mkExtraKindBinders kind = do
   kind' <- resolveKindSynonyms kind
-  let (_, _, args :|- _) = uncurryKind kind'
-  names <- replicateM (length args) (newName "x")
-  return $ zipWith kindedTV names args
+  let (args, _) = unravelKind kind'
+  let visArgs = filterVisFunArgs args
+  mapM mkTvb visArgs
+  where
+    mkTvb :: VisFunArg -> Q TyVarBndrUnit
+    mkTvb (VisFADep tvb) = return tvb
+    mkTvb (VisFAAnon ki) = do
+      name <- newName "x"
+      return $ kindedTV name ki
 
 -- | Is a declaration for a @data instance@ or @newtype instance@?
 isFamInstVariant :: DatatypeVariant -> Bool
@@ -1525,29 +1531,95 @@ uncurryType = go [] [] []
     go tvbs ctxt args (ForallT tvbs' ctxt' t)    = go (tvbs++tvbs') (ctxt++ctxt') args t
     go tvbs ctxt args t                          = (tvbs, ctxt, reverse args :|- t)
 
--- | Decompose a function kind into its context, argument kinds,
--- and return kind. For instance, this
---
---  forall a b. Maybe a -> Maybe b -> Type
---
--- becomes
---
---   ([a, b], [], [Maybe a, Maybe b] :|- Type)
-uncurryKind :: Kind -> ([TyVarBndrSpec], Cxt, NonEmptySnoc Kind)
-#if MIN_VERSION_template_haskell(2,8,0)
-uncurryKind = uncurryType
-#else
-uncurryKind = go []
-  where
-    go args (ArrowK k1 k2) = go (k1:args) k2
-    go args StarK          = ([], [], reverse args :|- StarK)
-#endif
-
 -- Reconstruct a function type from its type variable binders, context,
 -- argument types and return type.
 curryType :: [TyVarBndrSpec] -> Cxt -> [Type] -> Type -> Type
 curryType tvbs ctxt args res =
   ForallT tvbs ctxt $ foldr (\arg t -> ArrowT `AppT` arg `AppT` t) res args
+
+-- All of the code from @ForallTelescope@ through @unravelType@ is taken from
+-- the @th-desugar@ library, which is licensed under a 3-Clause BSD license.
+
+-- | The type variable binders in a @forall@. This is not used by the TH AST
+-- itself, but this is used as an intermediate data type in 'FAForalls'.
+data ForallTelescope
+  = ForallVis [TyVarBndrUnit]
+    -- ^ A visible @forall@ (e.g., @forall a -> {...}@).
+    --   These do not have any notion of specificity, so we use
+    --   '()' as a placeholder value in the 'TyVarBndr's.
+  | ForallInvis [TyVarBndrSpec]
+    -- ^ An invisible @forall@ (e.g., @forall a {b} c -> {...}@),
+    --   where each binder has a 'Specificity'.
+
+-- | The list of arguments in a function 'Type'.
+data FunArgs
+  = FANil
+    -- ^ No more arguments.
+  | FAForalls ForallTelescope FunArgs
+    -- ^ A series of @forall@ed type variables followed by a dot (if
+    --   'ForallInvis') or an arrow (if 'ForallVis'). For example,
+    --   the type variables @a1 ... an@ in @forall a1 ... an. r@.
+  | FACxt Cxt FunArgs
+    -- ^ A series of constraint arguments followed by @=>@. For example,
+    --   the @(c1, ..., cn)@ in @(c1, ..., cn) => r@.
+  | FAAnon Kind FunArgs
+    -- ^ An anonymous argument followed by an arrow. For example, the @a@
+    --   in @a -> r@.
+
+-- | A /visible/ function argument type (i.e., one that must be supplied
+-- explicitly in the source code). This is in contrast to /invisible/
+-- arguments (e.g., the @c@ in @c => r@), which are instantiated without
+-- the need for explicit user input.
+data VisFunArg
+  = VisFADep TyVarBndrUnit
+    -- ^ A visible @forall@ (e.g., @forall a -> a@).
+  | VisFAAnon Kind
+    -- ^ An anonymous argument followed by an arrow (e.g., @a -> r@).
+
+-- | Filter the visible function arguments from a list of 'FunArgs'.
+filterVisFunArgs :: FunArgs -> [VisFunArg]
+filterVisFunArgs FANil = []
+filterVisFunArgs (FAForalls tele args) =
+  case tele of
+    ForallVis tvbs -> map VisFADep tvbs ++ args'
+    ForallInvis _  -> args'
+  where
+    args' = filterVisFunArgs args
+filterVisFunArgs (FACxt _ args) =
+  filterVisFunArgs args
+filterVisFunArgs (FAAnon t args) =
+  VisFAAnon t:filterVisFunArgs args
+
+#if MIN_VERSION_template_haskell(2,8,0)
+-- | Decompose a function 'Type' into its arguments (the 'FunArgs') and its
+-- result type (the 'Type).
+unravelType :: Type -> (FunArgs, Type)
+unravelType (ForallT tvbs cxt ty) =
+  let (args, res) = unravelType ty in
+  (FAForalls (ForallInvis tvbs) (FACxt cxt args), res)
+unravelType (AppT (AppT ArrowT t1) t2) =
+  let (args, res) = unravelType t2 in
+  (FAAnon t1 args, res)
+# if __GLASGOW_HASKELL__ >= 809
+unravelType (ForallVisT tvbs ty) =
+  let (args, res) = unravelType ty in
+  (FAForalls (ForallVis tvbs) args, res)
+# endif
+unravelType t = (FANil, t)
+#endif
+
+-- | Decompose a function 'Kind' into its arguments (the 'FunArgs') and its
+-- result type (the 'Kind).
+unravelKind :: Kind -> (FunArgs, Kind)
+#if MIN_VERSION_template_haskell(2,8,0)
+unravelKind = unravelType
+#else
+unravelKind (ArrowK k1 k2) =
+  let (args, res) = unravelKind k2 in
+  (FAAnon k1 args, res)
+unravelKind StarK =
+  (FANil, StarK)
+#endif
 
 -- | Resolve any infix type application in a type using the fixities that
 -- are currently available. Starting in `template-haskell-2.11` types could
