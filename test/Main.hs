@@ -49,6 +49,10 @@ import           Data.Kind
 import           Data.Type.Equality ((:~:)(..))
 #endif
 
+#if __GLASGOW_HASKELL__ >= 810
+import           GHC.Exts (Any, RuntimeRep, TYPE)
+#endif
+
 import qualified Language.Haskell.TH as TH (Type)
 import           Language.Haskell.TH hiding (Type)
 import           Language.Haskell.TH.Datatype as Datatype
@@ -129,6 +133,7 @@ main =
      t103Test
 #endif
 #if __GLASGOW_HASKELL__ >= 810
+     t107Test
      t108Test
 #endif
 #if __GLASGOW_HASKELL__ >= 804
@@ -1221,6 +1226,30 @@ t103Test =
 #endif
 
 #if __GLASGOW_HASKELL__ >= 810
+t107Test :: IO ()
+t107Test =
+  $(do info <- reifyDatatype ''T107
+       let r = mkName "r"
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "T107"
+           , datatypeContext   = []
+           , datatypeVars      = [kindedTV r (ConT ''RuntimeRep)]
+           , datatypeInstTypes = []
+           , datatypeVariant   = Newtype
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkT107"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = [ConT ''Any `SigT` (ConT ''TYPE `AppT` VarT r)]
+                   , constructorStrictness = [notStrictAnnot]
+                   , constructorVariant    = NormalConstructor
+                   }
+               ]
+           }
+   )
+
 t108Test :: IO ()
 t108Test =
   $(do [dec] <- [d| data T108 :: forall k -> k -> Type where
