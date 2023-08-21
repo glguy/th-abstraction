@@ -1,6 +1,10 @@
 # Revision history for th-abstraction
 
 ## next -- ????.??.??
+* `normalizeCon` now takes a `Kind` argument representing the return kind of
+  the parent data type. (This is sometimes necessary to determine which type
+  variables in the data constructor are universal or existential, depending
+  on if the variables appear in the return kind.)
 * Fix a couple of bugs in which `normalizeDec` would return incorrect results
   for GADTs that use `forall`s in their return kind.
 
