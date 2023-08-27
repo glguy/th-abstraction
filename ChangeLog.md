@@ -1,8 +1,8 @@
 # Revision history for th-abstraction
 
 ## next -- ????.??.??
-* Fix a bug in which `normalizeDec` would return incorrect results for GADTs
-  that use visible dependent quantification in their return kind.
+* Fix a couple of bugs in which `normalizeDec` would return incorrect results
+  for GADTs that use `forall`s in their return kind.
 
 ## 0.6.0.0 -- 2023.07.31
 * Support building with `template-haskell-2.21.0.0` (GHC 9.8).

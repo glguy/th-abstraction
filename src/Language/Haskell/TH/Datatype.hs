@@ -733,14 +733,28 @@ normalizeDecFor isReified dec =
       | otherwise
       = return di
 
-    -- Given a data type's instance types and kind, compute its free variables.
-    datatypeFreeVars :: [Type] -> Maybe Kind -> [TyVarBndrUnit]
-    datatypeFreeVars instTys mbKind =
-      freeVariablesWellScoped $ instTys ++
+    -- Given a data type declaration's binders, as well as the arguments and
+    -- result of its explicit return kind, compute the free type variables.
+    -- For example, this:
+    --
+    -- @
+    -- data T (a :: j) :: forall k. Maybe k -> Type
+    -- @
+    --
+    -- Would yield:
+    --
+    -- @
+    -- [j, (a :: j), k, (b :: k)]
+    -- @
+    --
+    -- Where @b@ is a fresh name that is generated in 'mkExtraFunArgForalls'.
+    datatypeFreeVars :: [TyVarBndrUnit] -> FunArgs -> Kind -> [TyVarBndrUnit]
+    datatypeFreeVars declBndrs kindArgs kindRes =
+      freeVariablesWellScoped $ bndrParams declBndrs ++
 #if MIN_VERSION_template_haskell(2,8,0)
-                                           maybeToList mbKind
+        funArgTys kindArgs ++ [kindRes]
 #else
-                                           [] -- No kind variables
+        [] -- No kind variables
 #endif
 
     normalizeDataD :: Cxt -> Name -> [TyVarBndrVis] -> Maybe Kind
@@ -754,8 +768,7 @@ normalizeDecFor isReified dec =
       -- th-abstraction adopts the convention that all binders in the
       -- 'datatypeInstTypes' are required, so we want to filter out the `@k`.
       let tys = bndrParams $ filter isRequiredTvb tyvars in
-      normalize' context name (datatypeFreeVars (bndrParams tyvars) mbKind)
-                 tys mbKind cons variant
+      normalize' context name tyvars tys mbKind cons variant
 
     normalizeDataInstDPostTH2'15
       :: String -> Cxt -> Maybe [TyVarBndrUnit] -> Type -> Maybe Kind
@@ -765,7 +778,7 @@ normalizeDecFor isReified dec =
       case decomposeType nameInstTys of
         ConT name :| instTys ->
           normalize' context name
-                     (fromMaybe (datatypeFreeVars instTys mbKind) mbTyvars)
+                     (fromMaybe (freeVariablesWellScoped instTys) mbTyvars)
                      instTys mbKind cons variant
         _ -> fail $ "Unexpected " ++ what ++ " instance head: " ++ pprint nameInstTys
 
@@ -773,16 +786,19 @@ normalizeDecFor isReified dec =
       :: Cxt -> Name -> [Type] -> Maybe Kind
       -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalizeDataInstDPreTH2'15 context name instTys mbKind cons variant =
-      normalize' context name (datatypeFreeVars instTys mbKind)
+      normalize' context name (freeVariablesWellScoped instTys)
                  instTys mbKind cons variant
 
     -- The main worker of this function.
     normalize' :: Cxt -> Name -> [TyVarBndrUnit] -> [Type] -> Maybe Kind
                -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalize' context name tvbs instTys mbKind cons variant = do
-      extra_tvbs <- mkExtraKindBinders $ fromMaybe starK mbKind
-      let tvbs'    = tvbs ++ extra_tvbs
-          instTys' = instTys ++ bndrParams extra_tvbs
+      let kind = fromMaybe starK mbKind
+      kind' <- resolveKindSynonyms kind
+      let (kindArgs, kindRes) = unravelKind kind'
+      (extra_vis_tvbs, kindArgs') <- mkExtraFunArgForalls kindArgs
+      let tvbs'    = datatypeFreeVars tvbs kindArgs' kindRes
+          instTys' = instTys ++ bndrParams extra_vis_tvbs
       dec <- normalizeDec' isReified context name tvbs' instTys' cons variant
       repair13618' $ giveDIVarsStarKinds isReified dec
 
@@ -804,14 +820,75 @@ mkExtraKindBinders :: Kind -> Q [TyVarBndrUnit]
 mkExtraKindBinders kind = do
   kind' <- resolveKindSynonyms kind
   let (args, _) = unravelKind kind'
-  let visArgs = filterVisFunArgs args
-  mapM mkTvb visArgs
-  where
-    mkTvb :: VisFunArg -> Q TyVarBndrUnit
-    mkTvb (VisFADep tvb) = return tvb
-    mkTvb (VisFAAnon ki) = do
-      name <- newName "x"
-      return $ kindedTV name ki
+  (extra_kvbs, _) <- mkExtraFunArgForalls args
+  return extra_kvbs
+
+-- | Take the supplied function kind arguments ('FunArgs') and do two things:
+--
+-- 1. For each 'FAAnon' with kind @k@, generate a fresh name @a@ and return
+--    the 'TyVarBndr' @a :: k@. Also return each visible @forall@ in an
+--    'FAForalls' as a 'TyVarBndr'. (This is what the list of 'TyVarBndrUnit's
+--    in the return type consists of.)
+--
+-- 2. Return a new 'FunArgs' value where each 'FAAnon' has been replaced with
+--    @'FAForalls' ('ForallVis' [a :: k])@, where @a :: k@ the corresponding
+--    'TyVarBndr' computed in step (1).
+--
+-- As an example, consider this function kind:
+--
+-- @
+-- forall k. k -> Type -> Type
+-- @
+--
+-- After splitting this kind into its 'FunArgs':
+--
+-- @
+-- ['FAForalls' ('ForallInvis' [k]), 'FAAnon' k, 'FAAnon' Type]
+-- @
+--
+-- Calling 'mkExtraFunArgForalls' on this 'FunArgs' value would return:
+--
+-- @
+-- ( [a :: k, b :: Type]
+-- , [ 'FAForalls' ('ForallInvis' [k])
+--   , 'FAForalls' ('ForallVis' [a :: k])
+--   , 'FAForalls' ('ForallVis' [b :: Type])
+--   ]
+-- )
+-- @
+--
+-- Where @a@ and @b@ are fresh.
+--
+-- This function is used in two places:
+--
+-- 1. As the workhorse for 'mkExtraKindBinders'.
+--
+-- 2. In 'normalizeDecFor', as part of computing the 'datatypeInstVars' and as
+--    part of eta expanding the explicit return kind.
+mkExtraFunArgForalls :: FunArgs -> Q ([TyVarBndrUnit], FunArgs)
+mkExtraFunArgForalls FANil =
+  return ([], FANil)
+mkExtraFunArgForalls (FAForalls tele args) = do
+  (extra_vis_tvbs', args') <- mkExtraFunArgForalls args
+  case tele of
+    ForallVis tvbs ->
+      return ( tvbs ++ extra_vis_tvbs'
+             , FAForalls (ForallVis tvbs) args'
+             )
+    ForallInvis tvbs ->
+      return ( extra_vis_tvbs'
+             , FAForalls (ForallInvis tvbs) args'
+             )
+mkExtraFunArgForalls (FACxt ctxt args) = do
+  (extra_vis_tvbs', args') <- mkExtraFunArgForalls args
+  return (extra_vis_tvbs', FACxt ctxt args')
+mkExtraFunArgForalls (FAAnon anon args) = do
+  name <- newName "x"
+  let tvb = kindedTV name anon
+  (extra_vis_tvbs', args') <- mkExtraFunArgForalls args
+  return ( tvb : extra_vis_tvbs'
+         , FAForalls (ForallVis [tvb]) args'
+         )
 
 -- | Is a declaration for a @data instance@ or @newtype instance@?
 isFamInstVariant :: DatatypeVariant -> Bool
@@ -1566,31 +1643,42 @@ data FunArgs
     -- ^ An anonymous argument followed by an arrow. For example, the @a@
     --   in @a -> r@.
 
--- | A /visible/ function argument type (i.e., one that must be supplied
--- explicitly in the source code). This is in contrast to /invisible/
--- arguments (e.g., the @c@ in @c => r@), which are instantiated without
--- the need for explicit user input.
-data VisFunArg
-  = VisFADep TyVarBndrUnit
-    -- ^ A visible @forall@ (e.g., @forall a -> a@).
-  | VisFAAnon Kind
-    -- ^ An anonymous argument followed by an arrow (e.g., @a -> r@).
-
--- | Filter the visible function arguments from a list of 'FunArgs'.
-filterVisFunArgs :: FunArgs -> [VisFunArg]
-filterVisFunArgs FANil = []
-filterVisFunArgs (FAForalls tele args) =
-  case tele of
-    ForallVis tvbs -> map VisFADep tvbs ++ args'
-    ForallInvis _  -> args'
-  where
-    args' = filterVisFunArgs args
-filterVisFunArgs (FACxt _ args) =
-  filterVisFunArgs args
-filterVisFunArgs (FAAnon t args) =
-  VisFAAnon t:filterVisFunArgs args
-
 #if MIN_VERSION_template_haskell(2,8,0)
+-- | Convert a 'FunArg's value into the list of 'Type's that it contains.
+-- For example, given this function type:
+--
+-- @
+-- forall k (a :: k). Proxy a -> forall b. Maybe b
+-- @
+--
+-- Then calling @funArgTys@ on the arguments would yield:
+--
+-- @
+-- [k, (a :: k), Proxy a, b, Maybe b]
+-- @
+--
+-- This is primarily used for the purposes of computing all of the type
+-- variables that appear in a 'FunArgs' value.
+funArgTys :: FunArgs -> [Type]
+funArgTys FANil = []
+funArgTys (FAForalls tele args) =
+  forallTelescopeTys tele ++ funArgTys args
+# if __GLASGOW_HASKELL__ >= 800
+funArgTys (FACxt ctxt args) =
+  ctxt ++ funArgTys args
+# else
+funArgTys (FACxt {}) =
+  error "Constraints in kinds not supported prior to GHC 8.0"
+# endif
+funArgTys (FAAnon anon args) =
+  anon : funArgTys args
+
+-- | Convert a 'ForallTelescope' value into the list of 'Type's that it
+-- contains. See the Haddocks for 'funArgTys' for an example of what this does.
+forallTelescopeTys :: ForallTelescope -> [Type]
+forallTelescopeTys (ForallVis tvbs)   = bndrParams tvbs
+forallTelescopeTys (ForallInvis tvbs) = bndrParams tvbs
+
 -- | Decompose a function 'Type' into its arguments (the 'FunArgs') and its
 -- result type (the 'Type).
 unravelType :: Type -> (FunArgs, Type)
