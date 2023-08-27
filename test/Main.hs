@@ -4,6 +4,10 @@
 {-# LANGUAGE ConstraintKinds #-}
 #endif
 
+#if __GLASGOW_HASKELL__ >= 800 && __GLASGOW_HASKELL__ < 806
+{-# Language TypeInType #-}
+#endif
+
 #if __GLASGOW_HASKELL__ >= 807
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
@@ -38,11 +42,15 @@ import           Control.Monad (zipWithM_)
 import           Control.Monad (unless, when)
 import qualified Data.Map as Map
 
+#if __GLASGOW_HASKELL__ >= 800
+import           Data.Kind
+#endif
 #if MIN_VERSION_base(4,7,0)
 import           Data.Type.Equality ((:~:)(..))
 #endif
 
-import           Language.Haskell.TH
+import qualified Language.Haskell.TH as TH (Type)
+import           Language.Haskell.TH hiding (Type)
 import           Language.Haskell.TH.Datatype as Datatype
 import           Language.Haskell.TH.Datatype.TyVarBndr
 import           Language.Haskell.TH.Lib (starK)
@@ -122,6 +130,9 @@ main =
 #endif
 #if __GLASGOW_HASKELL__ >= 810
      t108Test
+#endif
+#if __GLASGOW_HASKELL__ >= 804
+     t110Test
 #endif
 
 adt1Test :: IO ()
@@ -811,7 +822,7 @@ kindSubstTest =
        let ty = ForallT [kindedTVSpecified a (VarT k1)] [] (VarT a)
            substTy = applySubstitution (Map.singleton k1 (VarT k2)) ty
 
-           checkFreeVars :: Type -> [Name] -> Q ()
+           checkFreeVars :: TH.Type -> [Name] -> Q ()
            checkFreeVars t freeVars =
              unless (freeVariables t == freeVars) $
                fail $ "free variables of " ++ show t ++ " should be " ++ show freeVars
@@ -843,7 +854,7 @@ t59Test =
 
 t61Test :: IO ()
 t61Test =
-  $(do let test :: Type -> Type -> Q ()
+  $(do let test :: TH.Type -> TH.Type -> Q ()
            test orig expected = do
              actual <- resolveTypeSynonyms orig
              unless (expected == actual) $
@@ -1228,6 +1239,36 @@ t108Test =
            , datatypeCons      =
                [ ConstructorInfo
                    { constructorName       = mkName "MkT108"
+                   , constructorVars       = []
+                   , constructorContext    = []
+                   , constructorFields     = []
+                   , constructorStrictness = []
+                   , constructorVariant    = NormalConstructor
+                   }
+               ]
+           }
+   )
+#endif
+
+#if __GLASGOW_HASKELL__ >= 804
+t110Test :: IO ()
+t110Test =
+  $(do [dec] <- [d| data T110 :: forall k. k -> Type where
+                      MkT110 :: forall k (a :: k). T110 a
+                  |]
+       info <- normalizeDec dec
+       let k = mkName "k"
+           a = mkName "a"
+       validateDI info
+         DatatypeInfo
+           { datatypeName      = mkName "T110"
+           , datatypeContext   = []
+           , datatypeVars      = [plainTV k, kindedTV a (VarT k)]
+           , datatypeInstTypes = [SigT (VarT a) (VarT k)]
+           , datatypeVariant   = Datatype
+           , datatypeCons      =
+               [ ConstructorInfo
+                   { constructorName       = mkName "MkT110"
                    , constructorVars       = []
                    , constructorContext    = []
                    , constructorFields     = []
