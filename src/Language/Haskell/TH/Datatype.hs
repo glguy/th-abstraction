@@ -442,7 +442,14 @@ normalizeInfo = normalizeInfo' "normalizeInfo" isn'tReified
 normalizeInfo' :: String -> IsReifiedDec -> Info -> Q DatatypeInfo
 normalizeInfo' entry reifiedDec i =
   case i of
-    PrimTyConI{}                      -> bad "Primitive type not supported"
+    (PrimTyConI name arity unlifted) -> do
+#if MIN_VERSION_template_haskell(2,16,0)
+      normalizeDecFor reifiedDec $ DataD [] name [] Nothing [] []
+#else
+      args <- replicateM arity (newName "x")
+      dec <- dataDCompat (return []) name (map plainTV args) [] []
+      normalizeDecFor reifiedDec dec
+#endif
     ClassI{}                          -> bad "Class not supported"
 #if MIN_VERSION_template_haskell(2,11,0)
     FamilyI DataFamilyD{} _           ->

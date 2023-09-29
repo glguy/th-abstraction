@@ -1,4 +1,4 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, RankNTypes #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, RankNTypes, MagicHash #-}
 
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE ConstraintKinds #-}
@@ -59,6 +59,8 @@ import           GHC.Exts (Any, RuntimeRep(..), TYPE)
 #if __GLASGOW_HASKELL__ >= 902
 import           GHC.Exts (UnliftedType, Levity(..))
 #endif
+
+import           GHC.Exts (Array#)
 
 import qualified Language.Haskell.TH as TH (Type)
 import           Language.Haskell.TH hiding (Type)
@@ -152,6 +154,7 @@ main =
 #if MIN_VERSION_template_haskell(2,18,0)
      unliftedGADTDecTest
 #endif
+     primTyConTest
 
 
 adt1Test :: IO ()
@@ -1426,3 +1429,37 @@ unliftedGADTDecTest =
            }
    )
 #endif
+
+
+primTyConTest :: IO ()
+primTyConTest =
+  $(do l <- newName "l"
+       a <- newName "a"
+       info <- reifyDatatype ''Array#
+       validateDI info
+         DatatypeInfo
+           { datatypeContext = []
+           , datatypeName = mkName "Array#"
+#if MIN_VERSION_template_haskell(2,19,0)
+           , datatypeVars = [kindedTV l (ConT ''Levity)
+                            , kindedTV a (ConT ''TYPE `AppT` (PromotedT 'BoxedRep `AppT` VarT l))
+                            ]
+           , datatypeInstTypes = [SigT (VarT a) (ConT ''TYPE `AppT` (PromotedT 'BoxedRep `AppT` VarT l))]
+           , datatypeReturnKind = ConT ''TYPE `AppT` (PromotedT 'BoxedRep `AppT` PromotedT 'Unlifted)
+#elif MIN_VERSION_template_haskell(2,18,0)
+           , datatypeVars = [ kindedTV a StarT]
+           , datatypeInstTypes = [SigT (VarT a) StarT]
+           , datatypeReturnKind = ConT ''TYPE `AppT` (PromotedT 'BoxedRep `AppT` PromotedT 'Unlifted)
+#elif MIN_VERSION_template_haskell(2,16,0)
+           , datatypeVars = [kindedTV a starK]
+           , datatypeInstTypes = [SigT (VarT a) starK]
+           , datatypeReturnKind = ConT ''TYPE `AppT` PromotedT 'UnliftedRep
+#else
+           , datatypeVars = [kindedTV a starK]
+           , datatypeInstTypes = [SigT (VarT a) starK]
+           , datatypeReturnKind = starK
+#endif
+           , datatypeVariant = Datatype
+           , datatypeCons = []
+           }
+   )
