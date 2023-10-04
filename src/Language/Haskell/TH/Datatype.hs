@@ -217,7 +217,7 @@ data DatatypeInfo = DatatypeInfo
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
-  = Datatype        -- ^ Type declared with @data@.
+  = Datatype        -- ^ Type declared with @data@ or a primitive datatype.
   | Newtype         -- ^ Type declared with @newtype@.
                     --
                     --   A 'DatatypeInfo' that uses 'Newtype' will uphold the
@@ -382,6 +382,9 @@ datatypeType di
 -- Trying to categorize which constraints need homogeneous or heterogeneous
 -- equality is tricky, so we leave that task to users of this library.
 --
+-- Primitive types (other than unboxed sums and tuples) will have
+-- no @datatypeCons@ in their normalization.
+--
 -- This function will apply various bug-fixes to the output of the underlying
 -- @template-haskell@ library in order to provide a view of datatypes in
 -- as uniform a way as possible.
@@ -442,7 +445,21 @@ normalizeInfo = normalizeInfo' "normalizeInfo" isn'tReified
 normalizeInfo' :: String -> IsReifiedDec -> Info -> Q DatatypeInfo
 normalizeInfo' entry reifiedDec i =
   case i of
-    PrimTyConI{}                      -> bad "Primitive type not supported"
+    (PrimTyConI name arity unlifted) -> do
+#if MIN_VERSION_template_haskell(2,16,0)
+      -- We provide a minimal @DataD@ because, since TH 2.16,
+      -- we can rely on the call to @reifyType@ in
+      -- @normalizeDecFor@ to fill in the missing details.
+      normalizeDecFor reifiedDec $ DataD [] name [] Nothing [] []
+#else
+      -- On older versions, we are very limited in what we can deduce.
+      -- All we know is the appropriate amount of type constructors.
+      -- Note that this will default all kinds to @Type@, which is all
+      -- that is available anyway.
+      args <- replicateM arity (newName "x")
+      dec <- dataDCompat (return []) name (map plainTV args) [] []
+      normalizeDecFor reifiedDec dec
+#endif
     ClassI{}                          -> bad "Class not supported"
 #if MIN_VERSION_template_haskell(2,11,0)
     FamilyI DataFamilyD{} _           ->
