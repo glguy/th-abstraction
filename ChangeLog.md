@@ -1,6 +1,13 @@
 # Revision history for th-abstraction
 
 ## 0.7.0.0 -- ????.??.??
+* `DatatypeInfo` now has an additional `datatypeReturnKind` field. Most of the
+  time, this will be `StarT`, but this can also be more exotic kinds such as
+  `ConT ''UnliftedType` if dealing with primitive types, `UnliftedDatatypes`,
+  or `UnliftedNewtypes`.
+* `reifyDatatype` and related functions now support primitive types such as
+  `Int#`. These will be reified as `DatatypeInfo`s with no `ConstructorInfo`s
+  and with `Datatype` as the `datatypeVariant`.
 * `normalizeCon` now takes a `Kind` argument representing the return kind of
   the parent data type. (This is sometimes necessary to determine which type
   variables in the data constructor are universal or existential, depending
