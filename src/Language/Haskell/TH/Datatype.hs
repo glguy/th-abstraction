@@ -803,7 +803,7 @@ normalizeDecFor isReified dec =
     -- @
     --
     -- Where @b@ is a fresh name that is generated in 'mkExtraFunArgForalls'.
-    datatypeFreeVars :: [TyVarBndrUnit] -> FunArgs -> Kind -> [TyVarBndrUnit]
+    datatypeFreeVars :: [TyVarBndr_ flag] -> FunArgs -> Kind -> [TyVarBndrUnit]
     datatypeFreeVars declBndrs kindArgs kindRes =
       freeVariablesWellScoped $ bndrParams declBndrs ++
 #if MIN_VERSION_template_haskell(2,8,0)
@@ -848,7 +848,7 @@ normalizeDecFor isReified dec =
                  instTys mbKind' cons variant
 
     -- The main worker of this function.
-    normalize' :: Cxt -> Name -> [TyVarBndrUnit] -> [Type] -> Maybe Kind
+    normalize' :: Cxt -> Name -> [TyVarBndr_ flag] -> [Type] -> Maybe Kind
                -> [Con] -> DatatypeVariant -> Q DatatypeInfo
     normalize' context name tvbs instTys mbKind cons variant = do
       -- If `mbKind` is *still* Nothing after all of the work done in
