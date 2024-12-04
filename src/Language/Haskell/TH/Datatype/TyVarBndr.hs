@@ -1,24 +1,9 @@
-{-# Language CPP, DeriveDataTypeable #-}
-
-#if MIN_VERSION_base(4,4,0)
-#define HAS_GENERICS
-{-# Language DeriveGeneric #-}
-#endif
+{-# Language CPP, DeriveDataTypeable, DeriveGeneric, DeriveLift, PatternSynonyms, ViewPatterns #-}
 
 #if MIN_VERSION_template_haskell(2,12,0)
 {-# Language Safe #-}
-#elif __GLASGOW_HASKELL__ >= 702
+#else
 {-# Language Trustworthy #-}
-#endif
-
-#if __GLASGOW_HASKELL__ >= 708
-{-# Language PatternSynonyms #-}
-{-# Language ViewPatterns #-}
-#endif
-
-#if __GLASGOW_HASKELL__ >= 800
-#define HAS_TH_LIFT
-{-# Language DeriveLift #-}
 #endif
 
 {-|
@@ -42,12 +27,10 @@ module Language.Haskell.TH.Datatype.TyVarBndr (
   , Specificity(..)
 #if __GLASGOW_HASKELL__ >= 907
   , BndrVis(..)
-#elif __GLASGOW_HASKELL__ >= 708
+#else
   , BndrVis
   , pattern BndrReq
   , pattern BndrInvis
-#else
-  , BndrVis
 #endif
   , DefaultBndrFlag(..)
 
@@ -102,13 +85,10 @@ module Language.Haskell.TH.Datatype.TyVarBndr (
 
 import Control.Applicative
 import Control.Monad
-import Data.Data (Typeable, Data)
+import Data.Data (Data)
+import GHC.Generics (Generic)
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax
-
-#ifdef HAS_GENERICS
-import GHC.Generics (Generic)
-#endif
 
 -- | A type synonym for 'TyVarBndr'. This is the recommended way to refer to
 -- 'TyVarBndr's if you wish to achieve backwards compatibility with older
@@ -132,14 +112,7 @@ type TyVarBndrSpec = TyVarBndr
 data Specificity
   = SpecifiedSpec -- ^ @a@. Eligible for visible type application.
   | InferredSpec  -- ^ @{a}@. Not eligible for visible type application.
-  deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-#ifdef HAS_TH_LIFT
-           ,Lift
-#endif
-           )
+  deriving (Show, Eq, Ord, Data, Generic, Lift)
 
 inferredSpec :: Specificity
 inferredSpec = InferredSpec
@@ -162,14 +135,11 @@ type BndrVis = ()
 {-# COMPLETE BndrReq, BndrInvis #-}
 #endif
 
-#if __GLASGOW_HASKELL__ >= 708
 -- | Because pre-9.8 GHCs do not support invisible binders in type-level
 -- declarations, we simply make 'BndrReq' a pattern synonym for @()@ as a
 -- compatibility shim for old GHCs. This matches how type-level 'TyVarBndr's
 -- were flagged prior to GHC 9.8.
-#if __GLASGOW_HASKELL__ >= 800
 pattern BndrReq :: BndrVis
-#endif
 pattern BndrReq = ()
 
 -- | Because pre-9.8 GHCs do not support invisible binders in type-level
@@ -199,11 +169,8 @@ pattern BndrReq = ()
 --   'BndrInvis' that would construct an invisible type-level binder on GHC 9.8
 --   or later, but a /visible/ type-level binder on older GHCs! This would be
 --   disastrous, so we prevent the user from doing such a thing.
-#if __GLASGOW_HASKELL__ >= 800
 pattern BndrInvis :: BndrVis
-#endif
 pattern BndrInvis <- ((\() -> True) -> False)
-#endif
 
 bndrReq :: BndrVis
 bndrReq = ()

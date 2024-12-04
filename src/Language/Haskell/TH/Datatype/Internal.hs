@@ -2,7 +2,7 @@
 
 #if MIN_VERSION_template_haskell(2,12,0)
 {-# Language Safe #-}
-#elif __GLASGOW_HASKELL__ >= 702
+#else
 {-# Language Trustworthy #-}
 #endif
 
@@ -21,7 +21,7 @@ module Language.Haskell.TH.Datatype.Internal where
 import Language.Haskell.TH.Syntax
 
 eqTypeName :: Name
-#if MIN_VERSION_base(4,9,0) && !(MIN_VERSION_base(4,13,0))
+#if !(MIN_VERSION_base(4,13,0))
 eqTypeName = mkNameG_tc "base" "Data.Type.Equality" "~"
 #else
 eqTypeName = mkNameG_tc "ghc-prim" "GHC.Types" "~"

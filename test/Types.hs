@@ -1,18 +1,7 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, ScopedTypeVariables, TypeOperators #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, ScopedTypeVariables, TypeOperators, ConstraintKinds, DataKinds, PolyKinds #-}
 
-#if __GLASGOW_HASKELL__ >= 704
-{-# LANGUAGE ConstraintKinds #-}
-#endif
-
-#if MIN_VERSION_template_haskell(2,8,0)
-{-# Language PolyKinds #-}
-#endif
-
-#if __GLASGOW_HASKELL__ >= 800
-{-# Language DataKinds #-}
-# if __GLASGOW_HASKELL__ < 806
+#if __GLASGOW_HASKELL__ < 806
 {-# Language TypeInType #-}
-# endif
 #endif
 
 #if __GLASGOW_HASKELL__ >= 810
@@ -38,18 +27,14 @@ on various versions of GHC.
 -}
 module Types where
 
-#if __GLASGOW_HASKELL__ >= 704
+import Data.Kind
+
 import GHC.Exts (Constraint)
-#endif
 
 import Language.Haskell.TH hiding (Type)
 import Language.Haskell.TH.Datatype
 import Language.Haskell.TH.Datatype.TyVarBndr
 import Language.Haskell.TH.Lib (starK)
-
-#if __GLASGOW_HASKELL__ >= 800
-import Data.Kind
-#endif
 
 #if __GLASGOW_HASKELL__ >= 810
 import GHC.Exts (Any, TYPE)
@@ -95,24 +80,15 @@ data family T43Fam
 
 type Id (a :: *) = a
 
-#if MIN_VERSION_template_haskell(2,7,0)
 data family DF (a :: *)
 data instance DF (Maybe a) = DFMaybe Int [a]
 
-# if MIN_VERSION_template_haskell(2,8,0)
 data family DF1 (a :: k)
-# else
-data family DF1 (a :: *)
-# endif
 data instance DF1 (b :: *) = DF1 b
 
 data family Quoted (a :: *)
 
-# if MIN_VERSION_template_haskell(2,8,0)
 data family Poly (a :: k)
-# else
-data family Poly (a :: *)
-# endif
 data instance Poly a = MkPoly
 
 data family GadtFam (a :: *) (b :: *)
@@ -136,9 +112,7 @@ data instance T73 Int b = MkT73 b
 
 data family T95 :: * -> *
 data instance T95 [a] = MkT95 a
-#endif
 
-#if __GLASGOW_HASKELL__ >= 704
 type Konst (a :: Constraint) (b :: Constraint) = a
 type PredSyn1 a b = Konst (Show a) (Read b)
 type PredSyn2 a b = Konst (PredSyn1 a b) (Show a)
@@ -148,21 +122,19 @@ data PredSynT =
     PredSyn1 Int Int => MkPredSynT1 Int
   | PredSyn2 Int Int => MkPredSynT2 Int
   | PredSyn3 Int     => MkPredSynT3 Int
-#endif
 
-#if __GLASGOW_HASKELL__ >= 800
 data T37a (k :: Type) :: k -> Type where
   MkT37a :: T37a Bool a
 
-# if __GLASGOW_HASKELL__ >= 810
+#if __GLASGOW_HASKELL__ >= 810
 type T37b :: k -> Type
-# endif
+#endif
 data T37b (a :: k) where
   MkT37b :: forall (a :: Bool). T37b a
 
-# if __GLASGOW_HASKELL__ >= 810
+#if __GLASGOW_HASKELL__ >= 810
 type T37c :: k -> Type
-# endif
+#endif
 data T37c (a :: k) where
   MkT37c :: T37c Bool
 
@@ -173,7 +145,6 @@ data T48 :: Type -> Type where
 
 data T75 (k :: Type) where
   MkT75 :: forall k (a :: k). Prox a -> T75 k
-#endif
 
 #if MIN_VERSION_template_haskell(2,20,0)
 type data T100 = MkT100
@@ -212,7 +183,6 @@ gadtRecVanillaCI =
     names@[v1,v2] = map mkName ["v1","v2"]
     [v1K,v2K]     = map (\n -> kindedTV n starK) names
 
-#if MIN_VERSION_template_haskell(2,7,0)
 gadtRecFamCI :: ConstructorInfo
 gadtRecFamCI =
   ConstructorInfo
@@ -226,4 +196,3 @@ gadtRecFamCI =
     , constructorVariant    = RecordConstructor ['famRec1, 'famRec2] }
   where
     [cTy,dTy] = map (VarT . mkName) ["c", "d"]
-#endif
