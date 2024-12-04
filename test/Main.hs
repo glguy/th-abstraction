@@ -1,20 +1,12 @@
-{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, RankNTypes, MagicHash #-}
+{-# Language CPP, FlexibleContexts, TypeFamilies, KindSignatures, TemplateHaskell, GADTs, RankNTypes, MagicHash, ConstraintKinds, PolyKinds #-}
 
-#if __GLASGOW_HASKELL__ >= 704
-{-# LANGUAGE ConstraintKinds #-}
-#endif
-
-#if __GLASGOW_HASKELL__ >= 800 && __GLASGOW_HASKELL__ < 806
+#if __GLASGOW_HASKELL__ < 806
 {-# Language TypeInType #-}
 #endif
 
 #if __GLASGOW_HASKELL__ >= 807
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeApplications #-}
-#endif
-
-#if MIN_VERSION_template_haskell(2,8,0)
-{-# Language PolyKinds #-}
 #endif
 
 #if MIN_VERSION_template_haskell(2,21,0)
@@ -39,19 +31,10 @@ the versions of GHC supported by this package.
 -}
 module Main (main) where
 
-#if __GLASGOW_HASKELL__ >= 704
-import           Control.Monad (zipWithM_)
-#endif
-
-import           Control.Monad (unless, when)
+import           Control.Monad (unless, when, zipWithM_)
 import qualified Data.Map as Map
-
-#if __GLASGOW_HASKELL__ >= 800
 import           Data.Kind
-#endif
-#if MIN_VERSION_base(4,7,0)
 import           Data.Type.Equality ((:~:)(..))
-#endif
 
 #if __GLASGOW_HASKELL__ >= 810
 import           GHC.Exts (Any, RuntimeRep(..), TYPE)
@@ -84,11 +67,8 @@ main =
      voidstosTest
      strictDemoTest
      recordVanillaTest
-#if MIN_VERSION_template_haskell(2,6,0)
      t43Test
      t58Test
-#endif
-#if MIN_VERSION_template_haskell(2,7,0)
      dataFamilyTest
      ghc78bugTest
      quotedTest
@@ -100,33 +80,22 @@ main =
      t46Test
      t73Test
      t95Test
-#endif
      fixityLookupTest
-#if __GLASGOW_HASKELL__ >= 704
      resolvePredSynonymsTest
-#endif
      reifyDatatypeWithConNameTest
      reifyConstructorTest
-#if MIN_VERSION_base(4,7,0)
      importedEqualityTest
-#endif
-#if MIN_VERSION_template_haskell(2,8,0)
      kindSubstTest
      t59Test
      t61Test
      t66Test
      t80Test
-#endif
-#if MIN_VERSION_template_haskell(2,11,0)
      t79TestA
-#endif
 #if MIN_VERSION_template_haskell(2,19,0)
      t79TestB
 #endif
-#if __GLASGOW_HASKELL__ >= 800
      t37Test
      polyKindedExTyvarTest
-#endif
 #if __GLASGOW_HASKELL__ >= 807
      resolveTypeSynonymsVKATest
 #endif
@@ -429,7 +398,6 @@ recordVanillaTest =
   $(do info <- reifyRecord 'gadtrec1a
        validateCI info gadtRecVanillaCI)
 
-#if MIN_VERSION_template_haskell(2,6,0)
 t43Test :: IO ()
 t43Test =
   $(do [decPlain] <- [d| data T43Plain where MkT43Plain :: T43Plain |]
@@ -497,9 +465,7 @@ t58Test =
                    , constructorVariant    = NormalConstructor } ]
            }
    )
-#endif
 
-#if MIN_VERSION_template_haskell(2,7,0)
 dataFamilyTest :: IO ()
 dataFamilyTest =
   $(do info <- reifyDatatype 'DFMaybe
@@ -576,16 +542,12 @@ polyTest :: IO ()
 polyTest =
   $(do info <- reifyDatatype 'MkPoly
        let [a,k] = map mkName ["a","k"]
-           kVar  = varKCompat k
+           kVar  = VarT k
        validateDI info
          DatatypeInfo
            { datatypeName      = ''Poly
            , datatypeContext   = []
-           , datatypeVars      = [
-#if __GLASGOW_HASKELL__ >= 800
-                                 kindedTV k starK,
-#endif
-                                 kindedTV a kVar ]
+           , datatypeVars      = [kindedTV k starK, kindedTV a kVar]
            , datatypeInstTypes = [SigT (VarT a) kVar]
            , datatypeVariant   = DataInstance
            , datatypeReturnKind = starK
@@ -774,14 +736,12 @@ t95Test =
                    , constructorVariant    = NormalConstructor }]
            }
    )
-#endif
 
 fixityLookupTest :: IO ()
 fixityLookupTest =
   $(do Just (Fixity 6 InfixR) <- reifyFixityCompat '(:**:)
        [| return () |])
 
-#if __GLASGOW_HASKELL__ >= 704
 resolvePredSynonymsTest :: IO ()
 resolvePredSynonymsTest =
   $(do info <- reifyDatatype ''PredSynT
@@ -793,7 +753,6 @@ resolvePredSynonymsTest =
            test3 = mkTest cxt3 [equalPred (ConT ''Int) (ConT ''Int)]
        mapM_ (either fail return) [test1,test2,test3]
        [| return () |])
-#endif
 
 reifyDatatypeWithConNameTest :: IO ()
 reifyDatatypeWithConNameTest =
@@ -826,23 +785,21 @@ reifyConstructorTest =
   $(do info <- reifyConstructor 'Just
        validateCI info justCI)
 
-#if MIN_VERSION_base(4,7,0)
 importedEqualityTest :: IO ()
 importedEqualityTest =
   $(do info <- reifyDatatype ''(:~:)
        let names@[a,b] = map mkName ["a","b"]
            [aVar,bVar] = map VarT names
            k           = mkName "k"
-           kKind       = varKCompat k
+           kKind       = VarT k
        validateDI info
          DatatypeInfo
            { datatypeContext   = []
            , datatypeName      = ''(:~:)
-           , datatypeVars      = [
-#if __GLASGOW_HASKELL__ >= 800
-                                 kindedTV k starK,
-#endif
-                                 kindedTV a kKind, kindedTV b kKind]
+           , datatypeVars      = [ kindedTV k starK
+                                 , kindedTV a kKind
+                                 , kindedTV b kKind
+                                 ]
            , datatypeInstTypes = [SigT aVar kKind, SigT bVar kKind]
            , datatypeVariant   = Datatype
            , datatypeReturnKind = starK
@@ -856,9 +813,7 @@ importedEqualityTest =
                    , constructorVariant    = NormalConstructor } ]
            }
    )
-#endif
 
-#if MIN_VERSION_template_haskell(2,8,0)
 kindSubstTest :: IO ()
 kindSubstTest =
   $(do k1 <- newName "k1"
@@ -883,11 +838,7 @@ t59Test =
        let proxyAK  = ConT (mkName "Proxy") `AppT` SigT (VarT a) (VarT k)
                         -- Proxy (a :: k)
            expected = ForallT
-#if __GLASGOW_HASKELL__ >= 800
                         [plainTVSpecified k, kindedTVSpecified a (VarT k)]
-#else
-                        [kindedTVSpecified a (VarT k)]
-#endif
                         [] proxyAK
            actual = quantifyType proxyAK
        unless (expected == actual) $
@@ -912,20 +863,16 @@ t61Test =
            a = mkName "a"
        test (SigT (idAppT $ ConT ''Int) (idAppT starK))
             (SigT (ConT ''Int) starK)
-#if MIN_VERSION_template_haskell(2,10,0)
        test (ForallT [kindedTVSpecified a (idAppT starK)]
                      [idAppT (ConT ''Show `AppT` VarT a)]
                      (idAppT $ VarT a))
             (ForallT [kindedTVSpecified a starK]
                      [ConT ''Show `AppT` VarT a]
                      (VarT a))
-#endif
-#if MIN_VERSION_template_haskell(2,11,0)
        test (InfixT (idAppT $ ConT ''Int) ''Either (idAppT $ ConT ''Int))
             (InfixT (ConT ''Int) ''Either (ConT ''Int))
        test (ParensT (idAppT $ ConT ''Int))
             (ConT ''Int)
-#endif
 #if MIN_VERSION_template_haskell(2,19,0)
        test (PromotedInfixT (idAppT $ ConT ''Int) '(:^:) (idAppT $ ConT ''Int))
             (PromotedInfixT (ConT ''Int) '(:^:) (ConT ''Int))
@@ -979,9 +926,7 @@ t80Test = do
                    , "Actual:   " ++ pprint actual
                    ]
   return ()
-#endif
 
-#if MIN_VERSION_template_haskell(2,11,0)
 t79TestA :: IO ()
 t79TestA =
   $(do let [a,b,c]  = map mkName ["a","b","c"]
@@ -997,7 +942,6 @@ t79TestA =
                         , "Actual:   " ++ pprint actual
                         ]
        [| return () |])
-#endif
 
 #if MIN_VERSION_template_haskell(2,19,0)
 t79TestB :: IO ()
@@ -1017,7 +961,6 @@ t79TestB =
        [| return () |])
 #endif
 
-#if __GLASGOW_HASKELL__ >= 800
 t37Test :: IO ()
 t37Test =
   $(do infoA <- reifyDatatype ''T37a
@@ -1138,7 +1081,6 @@ t75Test =
                     ++ show (length cs)
        [| return () |]
    )
-#endif
 
 #if __GLASGOW_HASKELL__ >= 807
 resolveTypeSynonymsVKATest :: IO ()
@@ -1368,7 +1310,7 @@ unboxedTupleTest =
        b  <- newName "b"
        tupleInfo <- reifyDatatype (unboxedTupleTypeName 2)
        validateDI tupleInfo
-         DatatypeInfo 
+         DatatypeInfo
            { datatypeContext = []
            , datatypeName = unboxedTupleTypeName 2
            , datatypeVars = [kindedTV k0 starK

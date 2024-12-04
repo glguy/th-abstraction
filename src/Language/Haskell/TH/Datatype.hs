@@ -1,13 +1,8 @@
-{-# Language CPP, DeriveDataTypeable, ScopedTypeVariables, TupleSections #-}
-
-#if MIN_VERSION_base(4,4,0)
-#define HAS_GENERICS
-{-# Language DeriveGeneric #-}
-#endif
+{-# Language CPP, DeriveDataTypeable, DeriveGeneric, ScopedTypeVariables, TupleSections #-}
 
 #if MIN_VERSION_template_haskell(2,12,0)
 {-# Language Safe #-}
-#elif __GLASGOW_HASKELL__ >= 702
+#else
 {-# Language Trustworthy #-}
 #endif
 
@@ -125,7 +120,8 @@ module Language.Haskell.TH.Datatype
   , datatypeType
   ) where
 
-import           Data.Data (Typeable, Data)
+import           Control.Monad
+import           Data.Data (Data)
 import           Data.Foldable (foldMap, foldl')
 import           Data.List (mapAccumL, nub, find, union, (\\))
 import           Data.Map (Map)
@@ -134,23 +130,11 @@ import           Data.Maybe
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import qualified Data.Traversable as T
-import           Control.Monad
-import           Language.Haskell.TH
-#if MIN_VERSION_template_haskell(2,11,0)
-                                     hiding (Extension(..))
-#endif
+import           GHC.Generics (Generic)
+import           Language.Haskell.TH hiding (Extension(..))
 import           Language.Haskell.TH.Datatype.Internal
 import           Language.Haskell.TH.Datatype.TyVarBndr
 import           Language.Haskell.TH.Lib (arrowK, starK) -- needed for th-2.4
-
-#ifdef HAS_GENERICS
-import           GHC.Generics (Generic)
-#endif
-
-#if !MIN_VERSION_base(4,8,0)
-import           Control.Applicative (Applicative(..), (<$>))
-import           Data.Monoid (Monoid(..))
-#endif
 
 -- | Normalized information about newtypes and data types.
 --
@@ -209,11 +193,7 @@ data DatatypeInfo = DatatypeInfo
                                            -- then this is conservatively set to @StarT@.
   , datatypeCons      :: [ConstructorInfo] -- ^ Normalize constructor information
   }
-  deriving (Show, Eq, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Data, Generic)
 
 -- | Possible variants of data type declarations.
 data DatatypeVariant
@@ -242,11 +222,7 @@ data DatatypeVariant
                     --   * Each of the 'constructorStrictness' values in each
                     --     of the 'datatypeCons' will be equal to
                     --     'notStrictAnnot'.
-  deriving (Show, Read, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Read, Eq, Ord, Data, Generic)
 
 -- | Normalized information about constructors associated with newtypes and
 -- data types.
@@ -260,11 +236,7 @@ data ConstructorInfo = ConstructorInfo
                                                 --   as constructorFields)
   , constructorVariant    :: ConstructorVariant -- ^ Extra information
   }
-  deriving (Show, Eq, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Data, Generic)
 
 -- | Possible variants of data constructors.
 data ConstructorVariant
@@ -272,11 +244,7 @@ data ConstructorVariant
   | InfixConstructor         -- ^ Constructor without field names that is
                              --   declared infix
   | RecordConstructor [Name] -- ^ Constructor with field names
-  deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Ord, Data, Generic)
 
 -- | Normalized information about a constructor field's @UNPACK@ and
 -- strictness annotations.
@@ -305,33 +273,21 @@ data FieldStrictness = FieldStrictness
   { fieldUnpackedness :: Unpackedness
   , fieldStrictness   :: Strictness
   }
-  deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Ord, Data, Generic)
 
 -- | Information about a constructor field's unpackedness annotation.
 data Unpackedness
   = UnspecifiedUnpackedness -- ^ No annotation whatsoever
   | NoUnpack                -- ^ Annotated with @{\-\# NOUNPACK \#-\}@
   | Unpack                  -- ^ Annotated with @{\-\# UNPACK \#-\}@
-  deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Ord, Data, Generic)
 
 -- | Information about a constructor field's strictness annotation.
 data Strictness
   = UnspecifiedStrictness -- ^ No annotation whatsoever
   | Lazy                  -- ^ Annotated with @~@
   | Strict                -- ^ Annotated with @!@
-  deriving (Show, Eq, Ord, Typeable, Data
-#ifdef HAS_GENERICS
-           ,Generic
-#endif
-           )
+  deriving (Show, Eq, Ord, Data, Generic)
 
 isStrictAnnot, notStrictAnnot, unpackedAnnot :: FieldStrictness
 isStrictAnnot  = FieldStrictness UnspecifiedUnpackedness Strict
@@ -461,34 +417,17 @@ normalizeInfo' entry reifiedDec i =
       normalizeDecFor reifiedDec dec
 #endif
     ClassI{}                          -> bad "Class not supported"
-#if MIN_VERSION_template_haskell(2,11,0)
-    FamilyI DataFamilyD{} _           ->
-#elif MIN_VERSION_template_haskell(2,7,0)
-    FamilyI (FamilyD DataFam _ _ _) _ ->
-#else
-    TyConI (FamilyD DataFam _ _ _)    ->
-#endif
-                                         bad "Use a value constructor to reify a data family instance"
-#if MIN_VERSION_template_haskell(2,7,0)
+    FamilyI DataFamilyD{} _           -> bad "Use a value constructor to reify a data family instance"
     FamilyI _ _                       -> bad "Type families not supported"
-#endif
     TyConI dec                        -> normalizeDecFor reifiedDec dec
-#if MIN_VERSION_template_haskell(2,11,0)
     DataConI name _ parent            -> reifyParent name parent
                                          -- NB: We do not pass the IsReifiedDec information here
                                          -- because there's no point. We have no choice but to
                                          -- call reify here, since we need to determine the
                                          -- parent data type/family.
-#else
-    DataConI name _ parent _          -> reifyParent name parent
-#endif
-#if MIN_VERSION_template_haskell(2,11,0)
     VarI recName recTy _              -> reifyRecordType recName recTy
                                          -- NB: Similarly, we do not pass the IsReifiedDec
                                          -- information here.
-#else
-    VarI recName recTy _ _            -> reifyRecordType recName recTy
-#endif
     _                                 -> bad "Expected a type constructor"
   where
     bad msg = fail (entry ++ ": " ++ msg)
@@ -530,22 +469,13 @@ reifyParentWith ::
 reifyParentWith prefix p n =
   do info <- reify n
      case info of
-#if !(MIN_VERSION_template_haskell(2,11,0))
-       -- This unusual combination of Info and Dec is only possible to reify on
-       -- GHC 7.0 and 7.2, when you try to reify a data family. Because there's
-       -- no way to reify the data family *instances* on these versions of GHC,
-       -- we have no choice but to fail.
-       TyConI FamilyD{} -> dataFamiliesOnOldGHCsError
-#endif
        TyConI dec -> normalizeDecFor isReified dec
-#if MIN_VERSION_template_haskell(2,7,0)
        FamilyI dec instances ->
          do instances1 <- mapM (repairDataFam dec) instances
             instances2 <- mapM (normalizeDecFor isReified) instances1
             case find p instances2 of
               Just inst -> return inst
               Nothing   -> panic "lost the instance"
-#endif
        _ -> panic "unexpected parent"
   where
     dataFamiliesOnOldGHCsError :: Q a
@@ -555,70 +485,17 @@ reifyParentWith prefix p n =
     panic :: String -> Q a
     panic message = fail $ "PANIC: " ++ prefix ++ " " ++ message
 
-#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
-
--- A GHC 7.6-specific bug requires us to replace all occurrences of
--- (ConT GHC.Prim.*) with StarT, or else Template Haskell will reject it.
--- Luckily, (ConT GHC.Prim.*) only seems to occur in this one spot.
-sanitizeStars :: Kind -> Kind
-sanitizeStars = go
-  where
-    go :: Kind -> Kind
-    go (AppT t1 t2)                 = AppT (go t1) (go t2)
-    go (SigT t k)                   = SigT (go t) (go k)
-    go (ConT n) | n == starKindName = StarT
-    go t                            = t
-
--- A version of repairVarKindsWith that does much more extra work to
--- (1) eta-expand missing type patterns, and (2) ensure that the kind
--- signatures for these new type patterns match accordingly.
-repairVarKindsWith' :: [TyVarBndrUnit] -> Maybe Kind -> [Type] -> Q [Type]
-repairVarKindsWith' dvars dkind ts =
-  let kindVars                = freeVariables . map kindPart
-      kindPart (KindedTV _ k) = [k]
-      kindPart (PlainTV  _  ) = []
-
-      nparams             = length dvars
-      kparams             = kindVars dvars
-      (tsKinds,tsNoKinds) = splitAt (length kparams) ts
-      tsKinds'            = map sanitizeStars tsKinds
-      extraTys            = drop (length tsNoKinds) (bndrParams dvars)
-      ts'                 = tsNoKinds ++ extraTys -- eta-expand
-  in fmap (applySubstitution (Map.fromList (zip kparams tsKinds'))) $
-     repairVarKindsWith dvars dkind ts'
-
-
 -- Sadly, Template Haskell's treatment of data family instances leaves much
--- to be desired. Here are some problems that we have to work around:
---
--- 1. On all versions of GHC, TH leaves off the kind signatures on the
---    type patterns of data family instances where a kind signature isn't
---    specified explicitly. Here, we can use the parent data family's
---    type variable binders to reconstruct the kind signatures if they
---    are missing.
--- 2. On GHC 7.6 and 7.8, TH will eta-reduce data instances. We can find
---    the missing type variables on the data constructor.
---
--- We opt to avoid propagating these new type variables through to the
--- constructor now, but we will return to this task in normalizeCon.
+-- to be desired. On all versions of GHC, TH leaves off the kind signatures on
+-- the type patterns of data family instances where a kind signature isn't
+-- specified explicitly. Here, we can use the parent data family's type variable
+-- binders to reconstruct the kind signatures if they are missing.
 repairDataFam ::
   Dec {- ^ family declaration   -} ->
   Dec {- ^ instance declaration -} ->
   Q Dec {- ^ instance declaration -}
-
-repairDataFam
-  (FamilyD _ _ dvars dk)
-  (NewtypeInstD cx n ts con deriv) = do
-    ts' <- repairVarKindsWith' dvars dk ts
-    return $ NewtypeInstD cx n ts' con deriv
-repairDataFam
-  (FamilyD _ _ dvars dk)
-  (DataInstD cx n ts cons deriv) = do
-    ts' <- repairVarKindsWith' dvars dk ts
-    return $ DataInstD cx n ts' cons deriv
-#else
 repairDataFam famD instD
-# if MIN_VERSION_template_haskell(2,15,0)
+#if MIN_VERSION_template_haskell(2,15,0)
       | DataFamilyD _ dvars dk <- famD
       , NewtypeInstD cx mbInstVars nts k c deriv <- instD
       , con :| ts <- decomposeType nts
@@ -630,7 +507,7 @@ repairDataFam famD instD
       , con :| ts <- decomposeType nts
       = do ts' <- repairVarKindsWith dvars dk ts
            return $ DataInstD cx mbInstVars (foldl' AppT con ts') k c deriv
-# elif MIN_VERSION_template_haskell(2,11,0)
+#else
       | DataFamilyD _ dvars dk <- famD
       , NewtypeInstD cx n ts k c deriv <- instD
       = do ts' <- repairVarKindsWith dvars dk ts
@@ -640,17 +517,6 @@ repairDataFam famD instD
       , DataInstD cx n ts k c deriv <- instD
       = do ts' <- repairVarKindsWith dvars dk ts
            return $ DataInstD cx n ts' k c deriv
-# else
-      | FamilyD _ _ dvars dk <- famD
-      , NewtypeInstD cx n ts c deriv <- instD
-      = do ts' <- repairVarKindsWith dvars dk ts
-           return $ NewtypeInstD cx n ts' c deriv
-
-      | FamilyD _ _ dvars dk <- famD
-      , DataInstD cx n ts c deriv <- instD
-      = do ts' <- repairVarKindsWith dvars dk ts
-           return $ DataInstD cx n ts' c deriv
-# endif
 #endif
 repairDataFam _ instD = return instD
 
@@ -726,7 +592,7 @@ normalizeDecFor isReified dec =
     DataInstD context name instTys mbKind cons _derives ->
       normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
 # endif
-#elif MIN_VERSION_template_haskell(2,11,0)
+#else
     NewtypeD context name tyvars mbKind con _derives ->
       normalizeDataD context name tyvars mbKind [con] Newtype
     DataD context name tyvars mbKind cons _derives ->
@@ -735,15 +601,6 @@ normalizeDecFor isReified dec =
       normalizeDataInstDPreTH2'15 context name instTys mbKind [con] NewtypeInstance
     DataInstD context name instTys mbKind cons _derives ->
       normalizeDataInstDPreTH2'15 context name instTys mbKind cons DataInstance
-#else
-    NewtypeD context name tyvars con _derives ->
-      normalizeDataD context name tyvars Nothing [con] Newtype
-    DataD context name tyvars cons _derives ->
-      normalizeDataD context name tyvars Nothing cons Datatype
-    NewtypeInstD context name instTys con _derives ->
-      normalizeDataInstDPreTH2'15 context name instTys Nothing [con] NewtypeInstance
-    DataInstD context name instTys cons _derives ->
-      normalizeDataInstDPreTH2'15 context name instTys Nothing cons DataInstance
 #endif
     _ -> fail "normalizeDecFor: DataD or NewtypeD required"
   where
@@ -805,12 +662,8 @@ normalizeDecFor isReified dec =
     -- Where @b@ is a fresh name that is generated in 'mkExtraFunArgForalls'.
     datatypeFreeVars :: [TyVarBndr_ flag] -> FunArgs -> Kind -> [TyVarBndrUnit]
     datatypeFreeVars declBndrs kindArgs kindRes =
-      freeVariablesWellScoped $ bndrParams declBndrs ++
-#if MIN_VERSION_template_haskell(2,8,0)
-        funArgTys kindArgs ++ [kindRes]
-#else
-        [] -- No kind variables
-#endif
+      freeVariablesWellScoped $
+      bndrParams declBndrs ++ funArgTys kindArgs ++ [kindRes]
 
     normalizeDataD :: Cxt -> Name -> [TyVarBndrVis] -> Maybe Kind
                    -> [Con] -> DatatypeVariant -> Q DatatypeInfo
@@ -856,7 +709,7 @@ normalizeDecFor isReified dec =
       -- `Type`. See step (1) of Note [Tricky result kinds].
       let kind = fromMaybe starK mbKind
       kind' <- resolveKindSynonyms kind
-      let (kindArgs, kindRes) = unravelKind kind'
+      let (kindArgs, kindRes) = unravelType kind'
       (extra_vis_tvbs, kindArgs') <- mkExtraFunArgForalls kindArgs
       let tvbs'    = datatypeFreeVars tvbs kindArgs' kindRes
           instTys' = instTys ++ bndrParams extra_vis_tvbs
@@ -934,7 +787,7 @@ We accomplish this by doing the following:
    step with the corresponding kinds from the data type declaration. In the
    example above, the split argument kind is `TYPE r1`, and the binder in the
    declaration has kind `TYPE r2`, so we unify `TYPE r1` with `TYPE r2` using
-   `mergeArgumentKinds` to get a substitution [r1 :-> r2].
+   `mergeArguments` to get a substitution [r1 :-> r2].
 3. We then apply the substitution from the previous step to the rest of the
    kind. In the example above, that means we apply the [r1 :-> r2] substitution
    to `TYPE r1` to obtain `TYPE r2`.
@@ -960,7 +813,7 @@ of `r1` and `r2` as before.
 mkExtraKindBinders :: Kind -> Q [TyVarBndrUnit]
 mkExtraKindBinders kind = do
   kind' <- resolveKindSynonyms kind
-  let (args, _) = unravelKind kind'
+  let (args, _) = unravelType kind'
   (extra_kvbs, _) <- mkExtraFunArgForalls args
   return extra_kvbs
 
@@ -1049,11 +902,7 @@ bndrParam = elimTV VarT (\n k -> SigT (VarT n) k)
 
 -- | Returns 'True' if the flag of the supplied 'TyVarBndrVis' is 'BndrReq'.
 isRequiredTvb :: TyVarBndrVis -> Bool
-#if __GLASGOW_HASKELL__ >= 708
 isRequiredTvb tvb = tvFlag tvb == BndrReq
-#else
-isRequiredTvb _ = True
-#endif
 
 -- | Remove the outermost 'SigT'.
 stripSigT :: Type -> Type
@@ -1121,29 +970,10 @@ normalizeConFor reifiedDec typename params instTys resKind variant =
     -- 3. It has a programmer-supplied fixity declaration
     checkGadtFixity :: [Type] -> Name -> Q ConstructorVariant
     checkGadtFixity ts n = do
-#if MIN_VERSION_template_haskell(2,11,0)
       -- Don't call reifyFixityCompat here! We need to be able to distinguish
       -- between a default fixity and an explicit @infixl 9@.
       mbFi <- return Nothing `recover` reifyFixity n
       let userSuppliedFixity = isJust mbFi
-#else
-      -- On old GHCs, there is a bug where infix GADT constructors will
-      -- mistakenly be marked as (ForallC (NormalC ...)) instead of
-      -- (ForallC (InfixC ...)). This is especially annoying since on these
-      -- versions of GHC, Template Haskell doesn't grant the ability to query
-      -- whether a constructor was given a user-supplied fixity declaration.
-      -- Rather, you can only check the fixity that GHC ultimately decides on
-      -- for a constructor, regardless of whether it was a default fixity or
-      -- it was user-supplied.
-      --
-      -- We can approximate whether a fixity was user-supplied by checking if
-      -- it is not equal to defaultFixity (infixl 9). Unfortunately,
-      -- there is no way to distinguish between a user-supplied fixity of
-      -- infixl 9 and the fixity that GHC defaults to, so we cannot properly
-      -- handle that case.
-      mbFi <- reifyFixityCompat n
-      let userSuppliedFixity = isJust mbFi && mbFi /= Just defaultFixity
-#endif
       return $ if isInfixDataCon (nameBase n)
                   && length ts == 2
                   && userSuppliedFixity
@@ -1188,7 +1018,6 @@ normalizeConFor reifiedDec typename params instTys resKind variant =
                               (takeFieldTypes xs) stricts (RecordConstructor fns)]
                   ForallC tyvars' context' c' ->
                     go (changeTVFlags () tyvars'++tyvars) (context'++context) True c'
-#if MIN_VERSION_template_haskell(2,11,0)
                   GadtC ns xs innerType ->
                     let (bangs, ts) = unzip xs
                         stricts     = map normalizeStrictness bangs in
@@ -1200,101 +1029,8 @@ normalizeConFor reifiedDec typename params instTys resKind variant =
                              (const $ return $ RecordConstructor fns)
                 where
                   gadtCase = normalizeGadtC typename params instTys resKind tyvars context
-#endif
-#if MIN_VERSION_template_haskell(2,8,0) && (!MIN_VERSION_template_haskell(2,10,0))
-          dataFamCompatCase :: Con -> Q [ConstructorInfo]
-          dataFamCompatCase = go []
-            where
-              go tyvars c =
-                case c of
-                  NormalC n xs ->
-                    let stricts = map (normalizeStrictness . fst) xs in
-                    dataFamCase' n stricts NormalConstructor
-                  InfixC l n r ->
-                    let stricts = map (normalizeStrictness . fst) [l,r] in
-                    dataFamCase' n stricts InfixConstructor
-                  RecC n xs ->
-                    let stricts = takeFieldStrictness xs in
-                    dataFamCase' n stricts
-                                 (RecordConstructor (takeFieldNames xs))
-                  ForallC tyvars' context' c' ->
-                    go (tyvars'++tyvars) c'
-
-          dataFamCase' :: Name -> [FieldStrictness]
-                       -> ConstructorVariant
-                       -> Q [ConstructorInfo]
-          dataFamCase' n stricts variant = do
-            mbInfo <- reifyMaybe n
-            case mbInfo of
-              Just (DataConI _ ty _ _) -> do
-                let (tyvars, context, argTys :|- returnTy) = uncurryType ty
-                returnTy' <- resolveTypeSynonyms returnTy
-                -- Notice that we've ignored the TyVarBndrs, Cxt and argument
-                -- Types from the Con argument above, as they might be scoped
-                -- over eta-reduced variables. Instead of trying to figure out
-                -- what the eta-reduced variables should be substituted with
-                -- post facto, we opt for the simpler approach of using the
-                -- context and argument types from the reified constructor
-                -- Info, which will at least be correctly scoped. This will
-                -- make the task of substituting those types with the variables
-                -- we put in place of the eta-reduced variables
-                -- (in normalizeDec) much easier.
-                normalizeGadtC typename params instTys resKind tyvars context [n]
-                               returnTy' argTys stricts (const $ return variant)
-              _ -> fail $ unlines
-                     [ "normalizeCon: Cannot reify constructor " ++ nameBase n
-                     , "You are likely calling normalizeDec on GHC 7.6 or 7.8 on a data family"
-                     , "whose type variables have been eta-reduced due to GHC Trac #9692."
-                     , "Unfortunately, without being able to reify the constructor's type,"
-                     , "there is no way to recover the eta-reduced type variables in general."
-                     , "A recommended workaround is to use reifyDatatype instead."
-                     ]
-
-          -- A very ad hoc way of determining if we need to perform some extra passes
-          -- to repair an eta-reduction bug for data family instances that only occurs
-          -- with GHC 7.6 and 7.8. We want to avoid doing these passes if at all possible,
-          -- since they require reifying extra information, and reifying during
-          -- normalization can be problematic for locally declared Template Haskell
-          -- splices (see ##22).
-          mightHaveBeenEtaReduced :: [Type] -> Bool
-          mightHaveBeenEtaReduced ts =
-            case unsnoc ts of
-              Nothing -> False
-              Just (initTs :|- lastT) ->
-                case varTName lastT of
-                  Nothing -> False
-                  Just n  -> not (n `elem` freeVariables initTs)
-
-          -- If the list is empty returns 'Nothing', otherwise returns the
-          -- 'init' and the 'last'.
-          unsnoc :: [a] -> Maybe (NonEmptySnoc a)
-          unsnoc [] = Nothing
-          unsnoc (x:xs) = case unsnoc xs of
-            Just (a :|- b) -> Just ((x:a) :|- b)
-            Nothing        -> Just ([]    :|- x)
-
-          -- If a Type is a VarT, find Just its Name. Otherwise, return Nothing.
-          varTName :: Type -> Maybe Name
-          varTName (SigT t _) = varTName t
-          varTName (VarT n)   = Just n
-          varTName _          = Nothing
-
-      in case variant of
-           -- On GHC 7.6 and 7.8, there's quite a bit of post-processing that
-           -- needs to be performed to work around an old bug that eta-reduces the
-           -- type patterns of data families (but only for reified data family instances).
-           DataInstance
-             | reifiedDec, mightHaveBeenEtaReduced instTys
-             -> dataFamCompatCase
-           NewtypeInstance
-             | reifiedDec, mightHaveBeenEtaReduced instTys
-             -> dataFamCompatCase
-           _ -> defaultCase
-#else
       in defaultCase
-#endif
 
-#if MIN_VERSION_template_haskell(2,11,0)
 normalizeStrictness :: Bang -> FieldStrictness
 normalizeStrictness (Bang upk str) =
   FieldStrictness (normalizeSourceUnpackedness upk)
@@ -1309,14 +1045,6 @@ normalizeStrictness (Bang upk str) =
     normalizeSourceStrictness NoSourceStrictness = UnspecifiedStrictness
     normalizeSourceStrictness SourceLazy         = Lazy
     normalizeSourceStrictness SourceStrict       = Strict
-#else
-normalizeStrictness :: Strict -> FieldStrictness
-normalizeStrictness IsStrict  = isStrictAnnot
-normalizeStrictness NotStrict = notStrictAnnot
-# if MIN_VERSION_template_haskell(2,7,0)
-normalizeStrictness Unpacked  = unpackedAnnot
-# endif
-#endif
 
 normalizeGadtC ::
   Name              {- ^ Type constructor             -} ->
@@ -1373,7 +1101,7 @@ normalizeGadtC typename params instTys resKind tyvars context names innerType
      -- If the return type in the data constructor is of the form `T :: K`, then
      -- return (T, Just K, Just resKind), where `resKind` is the result kind of
      -- the parent data type. Otherwise, return (T :: K, Nothing, Nothing). The
-     -- two `Maybe` values are passed below to `mergeArgumentKinds` such that if
+     -- two `Maybe` values are passed below to `mergeArguments` such that if
      -- they are both `Just`, then we will attempt to unify `K` and `resKind`.
      -- See step (2) of Note [Tricky result kinds].
      let (innerType'', mbInnerResKind, mbResKind) =
@@ -1385,13 +1113,8 @@ normalizeGadtC typename params instTys resKind tyvars context names innerType
        ConT innerTyCon :| ts | typename == innerTyCon ->
 
          let -- See step (2) of Note [Tricky result kinds].
-#if MIN_VERSION_template_haskell(2,8,0)
              instTys' = maybeToList mbResKind ++ instTys
              ts' = maybeToList mbInnerResKind ++ ts
-#else
-             instTys' = instTys
-             ts' = ts
-#endif
 
              (substName, context1) =
                closeOverKinds (kindsOfFVsOfTvbs renamedTyvars)
@@ -1481,7 +1204,7 @@ closeOverKinds domainFVKinds rangeFVKinds = go
                                     r' <- Map.lookup r rangeFVKinds
                                     return (d', r'))
                      substList
-          (kindSubst, kindContext) = mergeArgumentKinds kindsOuter kindsInner
+          (kindSubst, kindContext) = mergeArguments kindsOuter kindsInner
           (restSubst, restContext)
             = if Map.null kindSubst -- Fixed-point calculation
                  then (Map.empty, [])
@@ -1499,12 +1222,7 @@ kindsOfFVsOfTypes = foldMap go
     go :: Type -> Map Name Kind
     go (AppT t1 t2) = go t1 `Map.union` go t2
     go (SigT t k) =
-      let kSigs =
-#if MIN_VERSION_template_haskell(2,8,0)
-                  go k
-#else
-                  Map.empty
-#endif
+      let kSigs = go k
       in case t of
            VarT n -> Map.insert n k kSigs
            _      -> go t `Map.union` kSigs
@@ -1527,12 +1245,7 @@ kindsOfFVsOfTvbs = foldMap go
   where
     go :: TyVarBndr_ flag -> Map Name Kind
     go = elimTV (\n -> Map.singleton n starK)
-                (\n k -> let kSigs =
-#if MIN_VERSION_template_haskell(2,8,0)
-                                     kindsOfFVsOfTypes [k]
-#else
-                                     Map.empty
-#endif
+                (\n k -> let kSigs = kindsOfFVsOfTypes [k]
                          in Map.insert n k kSigs)
 
 mergeArguments ::
@@ -1564,19 +1277,6 @@ mergeArguments ns ts = foldr aux (Map.empty, []) (zip ns ts)
     aux (x, SigT y _) sc = aux (x,y) sc
 
     aux _ sc = sc
-
--- | A specialization of 'mergeArguments' to 'Kind'.
--- Needed only for backwards compatibility with older versions of
--- @template-haskell@.
-mergeArgumentKinds ::
-  [Kind] ->
-  [Kind] ->
-  (Map Name Name, Cxt)
-#if MIN_VERSION_template_haskell(2,8,0)
-mergeArgumentKinds = mergeArguments
-#else
-mergeArgumentKinds _ _ = (Map.empty, [])
-#endif
 
 -- | Expand all of the type synonyms in a type.
 --
@@ -1614,7 +1314,6 @@ resolveTypeSynonyms t =
          ki' <- resolveKindSynonyms ki
          defaultCase $ SigT ty' ki'
        ConT n -> expandCon n f
-#if MIN_VERSION_template_haskell(2,11,0)
        InfixT t1 n t2 -> do
          t1' <- resolveTypeSynonyms t1
          t2' <- resolveTypeSynonyms t2
@@ -1623,7 +1322,6 @@ resolveTypeSynonyms t =
          t1' <- resolveTypeSynonyms t1
          t2' <- resolveTypeSynonyms t2
          expandCon n (UInfixT t1' n t2')
-#endif
 #if MIN_VERSION_template_haskell(2,15,0)
        ImplicitParamT n t -> do
          ImplicitParamT n <$> resolveTypeSynonyms t
@@ -1652,12 +1350,7 @@ resolveTypeArgSynonyms (TyArg k)    = TyArg    <$> resolveKindSynonyms k
 
 -- | Expand all of the type synonyms in a 'Kind'.
 resolveKindSynonyms :: Kind -> Q Kind
-#if MIN_VERSION_template_haskell(2,8,0)
 resolveKindSynonyms = resolveTypeSynonyms
-#else
-resolveKindSynonyms = return -- One simply couldn't put type synonyms into
-                             -- kinds on old versions of GHC.
-#endif
 
 -- | Expand all of the type synonyms in a the kind of a 'TyVarBndr'.
 resolve_tvb_syns :: TyVarBndr_ flag -> Q (TyVarBndr_ flag)
@@ -1676,39 +1369,7 @@ expandSynonymRHS synvars ts def =
 
 -- | Expand all of the type synonyms in a 'Pred'.
 resolvePredSynonyms :: Pred -> Q Pred
-#if MIN_VERSION_template_haskell(2,10,0)
 resolvePredSynonyms = resolveTypeSynonyms
-#else
-resolvePredSynonyms (ClassP n ts) = do
-  mbInfo <- reifyMaybe n
-  case mbInfo of
-    Just (TyConI (TySynD _ synvars def))
-      |  length ts >= length synvars -- Don't expand undersaturated type synonyms (#88)
-      -> resolvePredSynonyms $ typeToPred $ expandSynonymRHS synvars ts def
-    _ -> ClassP n <$> mapM resolveTypeSynonyms ts
-resolvePredSynonyms (EqualP t1 t2) = do
-  t1' <- resolveTypeSynonyms t1
-  t2' <- resolveTypeSynonyms t2
-  return (EqualP t1' t2')
-
-typeToPred :: Type -> Pred
-typeToPred t =
-  let f :| xs = decomposeType t in
-  case f of
-    ConT n
-      | n == eqTypeName
-# if __GLASGOW_HASKELL__ == 704
-        -- There's an unfortunate bug in GHC 7.4 where the (~) type is reified
-        -- with an explicit kind argument. To work around this, we ignore it.
-      , [_,t1,t2] <- xs
-# else
-      , [t1,t2] <- xs
-# endif
-      -> EqualP t1 t2
-      | otherwise
-      -> ClassP n xs
-    _ -> error $ "typeToPred: Can't handle type " ++ show t
-#endif
 
 -- | Decompose a type into a list of it's outermost applications. This process
 -- forgets about infix application, explicit parentheses, and visible kind
@@ -1730,9 +1391,7 @@ decomposeTypeArgs = go []
   where
     go :: [TypeArg] -> Type -> (Type, [TypeArg])
     go args (AppT f x)     = go (TANormal x:args) f
-#if MIN_VERSION_template_haskell(2,11,0)
     go args (ParensT t)    = go args t
-#endif
 #if MIN_VERSION_template_haskell(2,15,0)
     go args (AppKindT f x) = go (TyArg x:args) f
 #endif
@@ -1828,7 +1487,6 @@ data VisFunArg
   | VisFAAnon Kind
     -- ^ An anonymous argument followed by an arrow (e.g., @a -> r@).
 
-#if MIN_VERSION_template_haskell(2,8,0)
 -- | Decompose a function 'Type' into its arguments (the 'FunArgs') and its
 -- result type (the 'Type).
 unravelType :: Type -> (FunArgs, Type)
@@ -1838,11 +1496,11 @@ unravelType (ForallT tvbs cxt ty) =
 unravelType (AppT (AppT ArrowT t1) t2) =
   let (args, res) = unravelType t2 in
   (FAAnon t1 args, res)
-# if __GLASGOW_HASKELL__ >= 809
+#if __GLASGOW_HASKELL__ >= 809
 unravelType (ForallVisT tvbs ty) =
   let (args, res) = unravelType ty in
   (FAForalls (ForallVis tvbs) args, res)
-# endif
+#endif
 unravelType t = (FANil, t)
 
 -- | Reconstruct an arrow 'Type' from its argument and result types.
@@ -1881,13 +1539,8 @@ funArgTys :: FunArgs -> [Type]
 funArgTys FANil = []
 funArgTys (FAForalls tele args) =
   forallTelescopeTys tele ++ funArgTys args
-# if __GLASGOW_HASKELL__ >= 800
 funArgTys (FACxt ctxt args) =
   ctxt ++ funArgTys args
-# else
-funArgTys (FACxt {}) =
-  error "Constraints in kinds not supported prior to GHC 8.0"
-# endif
 funArgTys (FAAnon anon args) =
   anon : funArgTys args
 
@@ -1896,33 +1549,6 @@ funArgTys (FAAnon anon args) =
 forallTelescopeTys :: ForallTelescope -> [Type]
 forallTelescopeTys (ForallVis tvbs)   = bndrParams tvbs
 forallTelescopeTys (ForallInvis tvbs) = bndrParams tvbs
-#endif
-
--- | Reconstruct an arrow 'Kind' from its argument and result kinds.
-ravelKind :: FunArgs -> Kind -> Kind
-#if MIN_VERSION_template_haskell(2,8,0)
-ravelKind = ravelType
-#else
-ravelKind FANil res = res
-ravelKind (FAAnon k args) res = ArrowK k (ravelKind args res)
-ravelKind (FAForalls {}) _res =
-  error "TH doesn't support `forall`s in kinds prior to template-haskell-2.8.0.0"
-ravelKind (FACxt {}) _res =
-  error "TH doesn't support contexts in kinds prior to template-haskell-2.8.0.0"
-#endif
-
--- | Decompose a function 'Kind' into its arguments (the 'FunArgs') and its
--- result type (the 'Kind).
-unravelKind :: Kind -> (FunArgs, Kind)
-#if MIN_VERSION_template_haskell(2,8,0)
-unravelKind = unravelType
-#else
-unravelKind (ArrowK k1 k2) =
-  let (args, res) = unravelKind k2 in
-  (FAAnon k1 args, res)
-unravelKind StarK =
-  (FANil, StarK)
-#endif
 
 -- | @'filterVisFunArgsUpTo' xs args@ will split @args@ into 'VisFunArg's as
 -- many times as there are elements in @xs@, pairing up each entry in @xs@ with
@@ -2006,9 +1632,9 @@ filterVisFunArgsUpTo = go_fun_args
 -- visible function arguments in @args@ as there are elements in @xs@. If this
 -- is not the case, this function will raise an error.
 unravelKindUpTo :: [a] -> Kind -> ([(a, VisFunArg)], Kind)
-unravelKindUpTo xs k = (xs', ravelKind args' res)
+unravelKindUpTo xs k = (xs', ravelType args' res)
   where
-    (args, res) = unravelKind k
+    (args, res) = unravelType k
     (xs', args') = filterVisFunArgsUpTo xs args
 
 -- | Resolve any infix type application in a type using the fixities that
@@ -2016,7 +1642,6 @@ unravelKindUpTo xs k = (xs', ravelKind args' res)
 -- contain unresolved infix applications.
 resolveInfixT :: Type -> Q Type
 
-#if MIN_VERSION_template_haskell(2,11,0)
 resolveInfixT (ForallT vs cx t) = ForallT <$> traverse (traverseTVKind resolveInfixT) vs
                                           <*> mapM resolveInfixT cx
                                           <*> resolveInfixT t
@@ -2025,28 +1650,28 @@ resolveInfixT (ParensT t)       = resolveInfixT t
 resolveInfixT (InfixT l o r)    = conT o `appT` resolveInfixT l `appT` resolveInfixT r
 resolveInfixT (SigT t k)        = SigT <$> resolveInfixT t <*> resolveInfixT k
 resolveInfixT t@UInfixT{}       = resolveInfixT =<< resolveInfixT1 (gatherUInfixT t)
-# if MIN_VERSION_template_haskell(2,15,0)
+#if MIN_VERSION_template_haskell(2,15,0)
 resolveInfixT (f `AppKindT` x)  = appKindT (resolveInfixT f) (resolveInfixT x)
 resolveInfixT (ImplicitParamT n t)
                                 = implicitParamT n $ resolveInfixT t
-# endif
-# if MIN_VERSION_template_haskell(2,16,0)
+#endif
+#if MIN_VERSION_template_haskell(2,16,0)
 resolveInfixT (ForallVisT vs t) = ForallVisT <$> traverse (traverseTVKind resolveInfixT) vs
                                              <*> resolveInfixT t
-# endif
-# if MIN_VERSION_template_haskell(2,19,0)
+#endif
+#if MIN_VERSION_template_haskell(2,19,0)
 resolveInfixT (PromotedInfixT l o r)
                                 = promotedT o `appT` resolveInfixT l `appT` resolveInfixT r
 resolveInfixT t@PromotedUInfixT{}
                                 = resolveInfixT =<< resolveInfixT1 (gatherUInfixT t)
-# endif
+#endif
 resolveInfixT t                 = return t
 
 gatherUInfixT :: Type -> InfixList
 gatherUInfixT (UInfixT l o r)         = ilAppend (gatherUInfixT l) o False (gatherUInfixT r)
-# if MIN_VERSION_template_haskell(2,19,0)
+#if MIN_VERSION_template_haskell(2,19,0)
 gatherUInfixT (PromotedUInfixT l o r) = ilAppend (gatherUInfixT l) o True  (gatherUInfixT r)
-# endif
+#endif
 gatherUInfixT t = ILNil t
 
 -- This can fail due to incompatible fixities
@@ -2097,11 +1722,6 @@ ilAppend :: InfixList -> Name -> Bool -> InfixList -> InfixList
 ilAppend (ILNil l)            o p r = ILCons l o p r
 ilAppend (ILCons l1 o1 p1 r1) o p r = ILCons l1 o1 p1 (ilAppend r1 o p r)
 
-#else
--- older template-haskell packages don't have UInfixT
-resolveInfixT = return
-#endif
-
 
 -- | Render a 'Fixity' as it would appear in Haskell source.
 --
@@ -2121,11 +1741,7 @@ showFixityDirection InfixN = "infix"
 takeFieldNames :: [(Name,a,b)] -> [Name]
 takeFieldNames xs = [a | (a,_,_) <- xs]
 
-#if MIN_VERSION_template_haskell(2,11,0)
-takeFieldStrictness :: [(a,Bang,b)]   -> [FieldStrictness]
-#else
-takeFieldStrictness :: [(a,Strict,b)] -> [FieldStrictness]
-#endif
+takeFieldStrictness :: [(a,Bang,b)] -> [FieldStrictness]
 takeFieldStrictness xs = [normalizeStrictness a | (_,a,_) <- xs]
 
 takeFieldTypes :: [(a,b,Type)] -> [Type]
@@ -2201,15 +1817,10 @@ freeVariablesWellScoped tys =
           go_ty :: Type -> Map Name Kind
           go_ty (ForallT tvbs ctxt t) =
             foldr (\tvb -> Map.delete (tvName tvb))
-                  (foldMap go_pred ctxt `mappend` go_ty t) tvbs
+                  (foldMap go_ty ctxt `mappend` go_ty t) tvbs
           go_ty (AppT t1 t2) = go_ty t1 `mappend` go_ty t2
           go_ty (SigT t k) =
-            let kSigs =
-#if MIN_VERSION_template_haskell(2,8,0)
-                  go_ty k
-#else
-                  mempty
-#endif
+            let kSigs = go_ty k
             in case t of
                  VarT n -> Map.insert n k kSigs
                  _      -> go_ty t `mappend` kSigs
@@ -2222,14 +1833,6 @@ freeVariablesWellScoped tys =
             foldr (\tvb -> Map.delete (tvName tvb)) (go_ty t) tvbs
 #endif
           go_ty _ = mempty
-
-          go_pred :: Pred -> Map Name Kind
-#if MIN_VERSION_template_haskell(2,10,0)
-          go_pred = go_ty
-#else
-          go_pred (ClassP _ ts)  = foldMap go_ty ts
-          go_pred (EqualP t1 t2) = go_ty t1 `mappend` go_ty t2
-#endif
 
       -- | Do a topological sort on a list of tyvars,
       --   so that binders occur before occurrences
@@ -2284,22 +1887,7 @@ freeVariablesWellScoped tys =
       ascribeWithKind n =
         maybe (plainTV n) (kindedTV n) (Map.lookup n varKindSigs)
 
-      -- An annoying wrinkle: GHCs before 8.0 don't support explicitly
-      -- quantifying kinds, so something like @forall k (a :: k)@ would be
-      -- rejected. To work around this, we filter out any binders whose names
-      -- also appear in a kind on old GHCs.
-      isKindBinderOnOldGHCs
-#if __GLASGOW_HASKELL__ >= 800
-        = const False
-#else
-        = (`elem` kindVars)
-          where
-            kindVars = freeVariables $ Map.elems varKindSigs
-#endif
-
-  in map ascribeWithKind $
-     filter (not . isKindBinderOnOldGHCs) $
-     scopedSort fvs
+  in map ascribeWithKind $ scopedSort fvs
 
 -- | Substitute all of the free variables in a type with fresh ones
 freshenFreeVariables :: Type -> Q Type
@@ -2331,11 +1919,9 @@ instance TypeSubstitution Type where
       go (AppT f x)      = AppT (go f) (go x)
       go (SigT t k)      = SigT (go t) (applySubstitution subst k) -- k could be Kind
       go (VarT v)        = Map.findWithDefault (VarT v) v subst
-#if MIN_VERSION_template_haskell(2,11,0)
       go (InfixT l c r)  = InfixT (go l) c (go r)
       go (UInfixT l c r) = UInfixT (go l) c (go r)
       go (ParensT t)     = ParensT (go t)
-#endif
 #if MIN_VERSION_template_haskell(2,15,0)
       go (AppKindT t k)  = AppKindT (go t) (go k)
       go (ImplicitParamT n t)
@@ -2365,11 +1951,9 @@ instance TypeSubstitution Type where
       AppT f x      -> freeVariables f `union` freeVariables x
       SigT t' k     -> freeVariables t' `union` freeVariables k
       VarT v        -> [v]
-#if MIN_VERSION_template_haskell(2,11,0)
       InfixT l _ r  -> freeVariables l `union` freeVariables r
       UInfixT l _ r -> freeVariables l `union` freeVariables r
       ParensT t'    -> freeVariables t'
-#endif
 #if MIN_VERSION_template_haskell(2,15,0)
       AppKindT t k  -> freeVariables t `union` freeVariables k
       ImplicitParamT _ t
@@ -2406,24 +1990,6 @@ instance TypeSubstitution ConstructorInfo where
        , constructorContext = applySubstitution subst' (constructorContext ci)
        , constructorFields  = applySubstitution subst' (constructorFields ci)
        }
-
--- 'Pred' became a type synonym for 'Type'
-#if !MIN_VERSION_template_haskell(2,10,0)
-instance TypeSubstitution Pred where
-  freeVariables (ClassP _ xs) = freeVariables xs
-  freeVariables (EqualP x y) = freeVariables x `union` freeVariables y
-
-  applySubstitution p (ClassP n xs) = ClassP n (applySubstitution p xs)
-  applySubstitution p (EqualP x y) = EqualP (applySubstitution p x)
-                                            (applySubstitution p y)
-#endif
-
--- 'Kind' became a type synonym for 'Type'. Previously there were no kind variables
-#if !MIN_VERSION_template_haskell(2,8,0)
-instance TypeSubstitution Kind where
-  freeVariables _ = []
-  applySubstitution _ k = k
-#endif
 
 -- | Substitutes into the kinds of type variable binders. This makes an effort
 -- to avoid capturing the 'TyVarBndr' names during substitution by
@@ -2530,46 +2096,27 @@ unify' t u
 -- | Construct an equality constraint. The implementation of 'Pred' varies
 -- across versions of Template Haskell.
 equalPred :: Type -> Type -> Pred
-equalPred x y =
-#if MIN_VERSION_template_haskell(2,10,0)
-  AppT (AppT EqualityT x) y
-#else
-  EqualP x y
-#endif
+equalPred x y = AppT (AppT EqualityT x) y
 
 -- | Construct a typeclass constraint. The implementation of 'Pred' varies
 -- across versions of Template Haskell.
 classPred :: Name {- ^ class -} -> [Type] {- ^ parameters -} -> Pred
-classPred =
-#if MIN_VERSION_template_haskell(2,10,0)
-  foldl AppT . ConT
-#else
-  ClassP
-#endif
+classPred = foldl AppT . ConT
 
 -- | Match a 'Pred' representing an equality constraint. Returns
 -- arguments to the equality constraint if successful.
 asEqualPred :: Pred -> Maybe (Type,Type)
-#if MIN_VERSION_template_haskell(2,10,0)
 asEqualPred (EqualityT `AppT` x `AppT` y)                    = Just (x,y)
 asEqualPred (ConT eq   `AppT` x `AppT` y) | eq == eqTypeName = Just (x,y)
-#else
-asEqualPred (EqualP            x        y)                   = Just (x,y)
-#endif
 asEqualPred _                                                = Nothing
 
 -- | Match a 'Pred' representing a class constraint.
 -- Returns the classname and parameters if successful.
 asClassPred :: Pred -> Maybe (Name, [Type])
-#if MIN_VERSION_template_haskell(2,10,0)
 asClassPred t =
   case decomposeType t of
     ConT f :| xs | f /= eqTypeName -> Just (f,xs)
     _                              -> Nothing
-#else
-asClassPred (ClassP f xs) = Just (f,xs)
-asClassPred _             = Nothing
-#endif
 
 ------------------------------------------------------------------------
 
@@ -2662,12 +2209,10 @@ dataDCompat ::
 dataDCompat c n ts cs ds =
   dataD c n ts Nothing cs
     (if null ds then [] else [derivClause Nothing (map conT ds)])
-#elif MIN_VERSION_template_haskell(2,11,0)
+#else
 dataDCompat c n ts cs ds =
   dataD c n ts Nothing cs
     (return (map ConT ds))
-#else
-dataDCompat = dataD
 #endif
 
 -- | Backward compatible version of 'newtypeD'
@@ -2682,12 +2227,10 @@ newtypeDCompat ::
 newtypeDCompat c n ts cs ds =
   newtypeD c n ts Nothing cs
     (if null ds then [] else [derivClause Nothing (map conT ds)])
-#elif MIN_VERSION_template_haskell(2,11,0)
+#else
 newtypeDCompat c n ts cs ds =
   newtypeD c n ts Nothing cs
     (return (map ConT ds))
-#else
-newtypeDCompat = newtypeD
 #endif
 
 -- | Backward compatible version of 'tySynInstD'
@@ -2701,10 +2244,8 @@ tySynInstDCompat ::
 tySynInstDCompat n mtvbs ps r = TySynInstD <$> (TySynEqn <$> mapM sequence mtvbs
                                                          <*> foldl' appT (conT n) ps
                                                          <*> r)
-#elif MIN_VERSION_template_haskell(2,9,0)
-tySynInstDCompat n _ ps r     = TySynInstD n <$> (TySynEqn <$> sequence ps <*> r)
 #else
-tySynInstDCompat n _          = tySynInstD n
+tySynInstDCompat n _ ps r     = TySynInstD n <$> (TySynEqn <$> sequence ps <*> r)
 #endif
 
 -- | Backward compatible version of 'pragLineD'. Returns
@@ -2713,18 +2254,10 @@ pragLineDCompat ::
   Int     {- ^ line number -} ->
   String  {- ^ file name   -} ->
   Maybe DecQ
-#if MIN_VERSION_template_haskell(2,10,0)
 pragLineDCompat ln fn = Just (pragLineD ln fn)
-#else
-pragLineDCompat _  _  = Nothing
-#endif
 
 arrowKCompat :: Kind -> Kind -> Kind
-#if MIN_VERSION_template_haskell(2,8,0)
 arrowKCompat x y = arrowK `appK` x `appK` y
-#else
-arrowKCompat = arrowK
-#endif
 
 ------------------------------------------------------------------------
 
@@ -2738,17 +2271,7 @@ arrowKCompat = arrowK
 -- In this case for type operators the answer could be 'Nothing', which
 -- indicates that the answer is unavailable.
 reifyFixityCompat :: Name -> Q (Maybe Fixity)
-#if MIN_VERSION_template_haskell(2,11,0)
 reifyFixityCompat n = recover (return Nothing) ((`mplus` Just defaultFixity) <$> reifyFixity n)
-#else
-reifyFixityCompat n = recover (return Nothing) $
-  do info <- reify n
-     return $! case info of
-       ClassOpI _ _ _ fixity -> Just fixity
-       DataConI _ _ _ fixity -> Just fixity
-       VarI     _ _ _ fixity -> Just fixity
-       _                     -> Nothing
-#endif
 
 -- | Call 'reify' and return @'Just' info@ if successful or 'Nothing' if
 -- reification failed.

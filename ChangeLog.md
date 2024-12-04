@@ -1,5 +1,8 @@
 # Revision history for th-abstraction
 
+## next -- ????.??.??
+* Drop support for pre-8.0 versions of GHC.
+
 ## 0.7.0.0 -- 2024.03.17
 * `DatatypeInfo` now has an additional `datatypeReturnKind` field. Most of the
   time, this will be `StarT`, but this can also be more exotic kinds such as
