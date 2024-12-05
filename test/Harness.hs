@@ -16,9 +16,6 @@ module Harness
   ( validateDI
   , validateCI
   , equateCxt
-
-    -- * Utilities
-  , varKCompat
   ) where
 
 import           Control.Monad
@@ -132,29 +129,9 @@ bndrParams = map $ elimTV VarT (\n k -> SigT (VarT n) k)
 
 equateStrictness :: FieldStrictness -> FieldStrictness -> Either String ()
 equateStrictness fs1 fs2 =
-  check "constructorStrictness" oldGhcHack fs1 fs2
-  where
-#if MIN_VERSION_template_haskell(2,7,0)
-    oldGhcHack = id
-#else
-    -- GHC 7.0 and 7.2 didn't have an Unpacked TH constructor, so as a
-    -- simple workaround, we will treat unpackedAnnot as isStrictAnnot
-    -- (the closest equivalent).
-    oldGhcHack fs
-      | fs == unpackedAnnot = isStrictAnnot
-      | otherwise           = fs
-#endif
+  check "constructorStrictness" id fs1 fs2
 
 check :: (Show b, Eq b) => String -> (a -> b) -> a -> a -> Either String ()
 check lbl f x y
   | f x == f y = Right ()
   | otherwise  = Left (lbl ++ ":\n\n" ++ show (f x) ++ "\n\n" ++ show (f y))
-
--- If on a recent-enough version of Template Haskell, construct a kind variable.
--- Otherwise, default to starK.
-varKCompat :: Name -> Kind
-#if MIN_VERSION_template_haskell(2,8,0)
-varKCompat = VarT
-#else
-varKCompat _ = starK
-#endif
