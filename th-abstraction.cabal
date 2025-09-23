@@ -28,7 +28,6 @@ library
                        Language.Haskell.TH.Datatype.TyVarBndr
   other-modules:       Language.Haskell.TH.Datatype.Internal
   build-depends:       base             >=4.9   && <5,
-                       ghc-prim,
                        template-haskell >=2.11  && <2.24,
                        containers       >=0.4   && <0.9
   hs-source-dirs:      src
