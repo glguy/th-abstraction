@@ -21,10 +21,10 @@ module Language.Haskell.TH.Datatype.Internal where
 import Language.Haskell.TH.Syntax
 
 eqTypeName :: Name
-#if !(MIN_VERSION_base(4,13,0))
-eqTypeName = mkNameG_tc "base" "Data.Type.Equality" "~"
-#else
+#if MIN_VERSION_base(4,13,0)
 eqTypeName = mkNameG_tc "ghc-prim" "GHC.Types" "~"
+#else
+eqTypeName = mkNameG_tc "base" "Data.Type.Equality" "~"
 #endif
 
 -- This is only needed for GHC 7.6-specific bug
