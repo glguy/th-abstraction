@@ -17,6 +17,9 @@
 {-# LANGUAGE UnliftedDatatypes #-}
 #endif
 
+-- We should aim to enable -Wincomplete-uni-patterns long-term. See #121.
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 {-|
 Module      : Main
 Description : Test cases for the th-abstraction package
