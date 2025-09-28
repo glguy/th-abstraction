@@ -1064,6 +1064,8 @@ polyKindedExTyvarTest =
            -> unless (a1 == a2) $
                 fail $ "Two occurrences of the same variable have different names: "
                     ++ show [a1, a2]
+         _ -> fail $ "Unexpected DatatypeInfo for T48: "
+                    ++ show info
        [| return () |]
    )
 
