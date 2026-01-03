@@ -1,6 +1,6 @@
 # Revision history for th-abstraction
 
-## next -- ????.??.??
+## 0.7.2.0 -- 2026.01.03
 * Support GHC 9.14.
 
 ## 0.7.1.0 -- 2024.12.05
